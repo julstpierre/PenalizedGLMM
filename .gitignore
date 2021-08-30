@@ -1,3 +1,6 @@
 data/UKBB.bed
 data/UKBB.bim
 data/UKBB.fam
+data/include_Caucasian.txt
+data/include_notCaucasian.txt
+data/covars_full.txt
