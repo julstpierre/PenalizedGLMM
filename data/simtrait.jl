@@ -1,7 +1,7 @@
 # ========================================================================
 # Code for simulating binary traits with environmental exposure from UKBB data
 # ========================================================================
-using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Distributions, GZip
+using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Distributions, CodecZlib
 
 # ------------------------------------------------------------------------
 # Initialize parameters
@@ -103,9 +103,9 @@ grm_inds = sample(axes(UKBB, 2), 50000, replace = false)
 K = grm(UKBB, method=:GRM, cinds = grm_inds)
 
 # Write GRM to a compressed csv file
-fh = GZip.open("grm.txt.gz", "w")
-write(fh, round.(K, digits =3))
-close(fh)
+open(GzipCompressorStream, "grm.txt.gz", "w") do stream
+    CSV.write(stream, DataFrame(round.(K, digits = 3), :auto))
+end
 
 # Sample p SNPs randomly accross genome, convert to additive model, scale and impute
 snp_inds = sample(setdiff(axes(UKBB, 2), grm_inds), p, replace = false, ordered = true)
