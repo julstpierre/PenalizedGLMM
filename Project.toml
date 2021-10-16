@@ -2,4 +2,6 @@
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 CodecZlib = "944b1d66-785c-5afd-91f1-9de20f533193"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+GLMNet = "8d5ece8b-de18-5317-b113-243142960cc6"
+SnpArrays = "4e780e97-f5bf-4111-9dc4-b70aaf691b06"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"

@@ -9,9 +9,6 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Fraction of Caucasian/Non-Caucasian in the first group
 w = 0.5; w = [1, 1 - w] 
 
-# Fraction of variance due to additive genetic effects (logit scale)
-h2_g = 0.2 	
-
 # Fraction of variance due to unobserved shared environmental effect (logit scale)
 h2_d = 0.2 	
 
@@ -120,9 +117,8 @@ SnpArrays.filter("UKBB", rowmask, colmask, des = "geno")
 # ------------------------------------------------------------------------
 # Variance components
 sigma2 = 2
-sigma2_g = h2_g * sigma2
 sigma2_d = h2_d * sigma2
-sigma2_e = (1 - h2_g - h2_d) * sigma2
+sigma2_g = (1 - h2_d) * sigma2
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
@@ -131,7 +127,7 @@ W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate random effects
-b = rand(MvNormal(G * beta, sigma2_g * K + sigma2_d * K_D + sigma2_e * Diagonal(ones(n))))
+b = rand(MvNormal(G * beta, sigma2_g * K + sigma2_d * K_D ))
 
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
