@@ -1,15 +1,15 @@
 module PenalizedGLMM
 
 using GLM
-using LinearAlgebra
+using LinearAlgebra, SparseArrays
 using CSV, CodecZlib, DataFrames, Distributions
 using SnpArrays
+using GLMNet
 
+export pglmm_null
 export pglmm
-export glmm_fit 
 
+include("src/pglmm_null.jl")
 include("src/pglmm.jl")
-include("src/pglmm_fit.jl")
-include("src/utils.jl")
 
 end
