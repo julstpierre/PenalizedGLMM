@@ -6,11 +6,14 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # ------------------------------------------------------------------------
 # Initialize parameters
 # ------------------------------------------------------------------------
+# Assign default command-line arguments
+const ARGS_ = isempty(ARGS) ? ["10000", "data/"] : ARGS
+
 # Fraction of Caucasian/Non-Caucasian in the first group
 w = 0.5; w = [1, 1 - w] 
 
 # Fraction of variance due to unobserved shared environmental effect (logit scale)
-h2_d = 0.2 	
+h2_d = 0
 
 # Prevalence for Non Caucasian
 pi0 = 0.1 	
@@ -19,10 +22,10 @@ pi0 = 0.1
 pi1 = 0.1 	
 
 # Number of snps to randomly select accros genome
-p = 10000
+p = parse(Int, ARGS_[1])
 
 # Percentage of causal SNPs
-c = 0.01
+c = 0.05
 
 # ------------------------------------------------------------------------
 # Load the covariate file
@@ -66,7 +69,7 @@ end
 pop = combine(groupby(dat, :ETHNICITY), nrow)[!, 1]
 exp_dat = similar(dat, 0)
 for i in 1:length(pop)
-    exp_dat = @chain data_sample(filter(:ETHNICITY => ==(pop[i]), dat), w[i]) begin
+    global exp_dat = @chain data_sample(filter(:ETHNICITY => ==(pop[i]), dat), w[i]) begin
         append!(exp_dat)
     end
 end
@@ -99,8 +102,15 @@ UKBB = SnpArray("UKBB.bed")
 grm_inds = sample(axes(UKBB, 2), 50000, replace = false)
 K = grm(UKBB, method=:GRM, cinds = grm_inds)
 
+# Ensure that K is positive definite
+xi = 1e-4;
+while minimum(eigen(K).values) < 0
+    global K = K + xi * Diagonal(ones(n));
+    global xi = 10*xi;
+end
+
 # Write GRM to a compressed csv file
-open(GzipCompressorStream, "grm.txt.gz", "w") do stream
+open(GzipCompressorStream, ARGS_[2] * "grm.txt.gz", "w") do stream
     CSV.write(stream, DataFrame(round.(K, digits = 3), :auto))
 end
 
@@ -110,7 +120,7 @@ G = convert(Matrix{Float64}, @view(UKBB[:, snp_inds]), center = true, scale = tr
 
 # Save filtered plink file
 rowmask, colmask = trues(n), [col in snp_inds for col in 1:size(UKBB, 2)]
-SnpArrays.filter("UKBB", rowmask, colmask, des = "geno")
+SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[2] * "geno")
 
 # ------------------------------------------------------------------------
 # Simulate phenotypes
@@ -139,5 +149,9 @@ final_dat = @chain grp_dat begin
     select!(Not([:pi, :logit_pi, :ETHNICITY]))
 end
 
-# Write csv file
-CSV.write("covariate.txt", final_dat)
+# Write csv files
+CSV.write(ARGS_[2] * "covariate.txt", final_dat)
+
+df = SnpData("UKBB").snp_info[snp_inds, [1,2,4]]
+df.beta = beta
+CSV.write(ARGS_[2] * "betas.txt", df)

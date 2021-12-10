@@ -10,7 +10,8 @@
 - `snpinds::Union{Nothing,AbstractVector{<:Integer}}`: SNP indices for bed/vcf file.
 - `geneticrowinds::Union{Nothing,AbstractVector{<:Integer}}`: sample indices for bed/vcf file.
 - `irwls_tol::Float64` = 1e-7 (default)`: tolerance for the IRWLS loop.
-- `irwls_maxiter::Integer = 20 (default)`: maximum number of Newton iterations for the IRWLS loop.
+- `irwls_maxiter::Integer = 30 (default)`: maximum number of Newton iterations for the IRWLS loop.
+- `criterion = :coef (default)`: criterion for coordinate descent convergence.
 """
 function pglmm(
     # positional arguments
@@ -20,8 +21,13 @@ function pglmm(
     snpmodel = ADDITIVE_MODEL,
     snpinds = nothing,
     geneticrowinds = nothing,
-    irwls_tol::Float64 = 1e-7,
-    irwls_maxiter::Integer = 20,
+    irwls_tol::Float64 = 1e-6,
+    irwls_maxiter::Integer = 30,
+    K_::Union{Nothing, Integer} = nothing,
+    verbose::Bool = false,
+    normalize_weights::Bool = false,
+    criterion = :coef,
+    GIC::String = "HDBIC",
     kwargs...
     )
 
@@ -29,160 +35,374 @@ function pglmm(
     geno = SnpArray(plinkfile * ".bed")
     
     # Convert genotype file to matrix, convert to additive model (default), scale and impute
-    if isnothing(snpinds) 
-        snpinds = 1:size(geno, 2) 
-    end
-    if isnothing(geneticrowinds) 
-        geneticrowinds = 1:size(geno, 1) 
-    end
+    snpinds = isnothing(snpinds) ? (1:size(geno, 2)) : snpinds 
+    geneticrowinds = isnothing(geneticrowinds) ? (1:size(geno, 1)) : geneticrowinds
     G = convert(Matrix{Float64}, @view(geno[geneticrowinds, snpinds]), model = snpmodel, center = true, scale = true, impute = true)
 
-    # Initialize number of subjects and genetic predictors
-    n, p = size(G)
+    # Initialize number of subjects and predictors (including intercept)
+    (n, p), k = size(G), size(nullmodel.X, 2)
     @assert n == length(nullmodel.y) "Genotype matrix and y must have same number of rows"
 
-    # Initialize number of non-genetic covariates (including intercept)
-    k = size(nullmodel.X, 2)
-    
-    # Center and scale covariates
+    # Center and scale non-genetic covariates
     X = (nullmodel.X .- mean(nullmodel.X, dims = 1)) ./ std(nullmodel.X, dims = 1)
-    X = isnan(X[1, 1]) ? [ones(n) X[:, 2:end]] : X
+    X = isnan(X[1, 1]) ? [ones(n) view(X, :, 2:k)] : X
 
-    # Penalty factor
+    # Initialize β and penalty factors
+    β = sparse([nullmodel.α; zeros(p)])
     p_f = [zeros(k); ones(p)]
-    
+
     # Spectral decomposition of sum(τ * V)
     eigvals, U = eigen(nullmodel.τV)
 
     # Define (normalized) weights for each observation
+    w = weight(nullmodel.family, eigvals, nullmodel.φ)
+    w_n = normalize_weights ? w / sum(w) : w
+
+    # Initialize working variable and mean vector and initialize null deviance 
+    # based on model with intercept only and no random effects
+    y = nullmodel.y
     if nullmodel.family == Binomial()
-        μ = GLM.linkinv.(LogitLink(), nullmodel.η)
-        Ytilde = nullmodel.η + 4 * (nullmodel.y - μ)
-        β = [nullmodel.α; zeros(p)]
-        c = 4
-    elseif nullmodel.family == Gaussian()
-        Ytilde = nullmodel.y
-        c = nullmodel.φ
+        μ, ybar = GLM.linkinv.(LogitLink(), nullmodel.η), mean(y)
+        Ytilde = nullmodel.η + 4 * (y - μ)
+        nulldev = -2 * sum(y * log(ybar / (1 - ybar)) .+ log(1 - ybar))
+    elseif nullmodel.family == Normal()
+        μ = nullmodel.η
+        Ytilde = y
+        nulldev = var(y) * (n - 1) / nullmodel.φ
     end
-    w = (1 ./(c .+ eigvals))
+
+    # Calculate U * Diagonal(w) and define Ut = U'
+    UD_inv = U * Diagonal(w)
+    Ut = Matrix(U')
 
     # Transform X and Y
-    Xstar = U' * [X  G]
-    Ystar = U' * Ytilde
-
-    # Penalized model
-    # For linear mixed model, we can call glmnet directly
-    if nullmodel.family == Gaussian()
-        path = glmnet(Xstar, Ystar; weights = w, penalty_factor = p_f, intercept = false)
-    # For binomial logistic mixed model, we need to perform IRWLS
-    elseif nullmodel.family == Binomial()
-        path = pglmm_lasso(Xstar, Ystar, nullmodel.y, U; β = β, w = w, p_f = p_f, K_ = 20) 
-    end 
-end
-
-function pglmm_lasso(
-    Xstar::AbstractMatrix{Float64},
-    Ystar::AbstractVector{Float64}, 
-    y::AbstractVector{Int64},
-    U::AbstractMatrix{Float64}; 
-    β::AbstractVector{Float64},
-    w::AbstractVector{Float64},
-    p_f::AbstractVector{Float64},
-    irwls_tol::Float64 = 1e-7,
-    irwls_maxiter::Integer = 20,
-    δ::Float64 = 0.001,
-    K_::Union{Nothing, Integer} = nothing
-    )
-
-    # Define inverse of Σ_tilde
-    UD_inv = U * Diagonal(w)
-    UD_invUX = UD_inv * Xstar
-
-    # Initialize null deviance
-    μ = mean(y)
-    μ_star = U' * (mean(U * Ystar) * ones(n))
-    nulldev = -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + sum(w .* (1 .- 4 * w) .* (Ystar - μ_star).^2)
-
-    # Sequence of λ
-    w_n = w / sum(w)
-    λ_seq, K = lambda_seq(Ystar, Xstar; weights = w_n, penalty_factor = p_f)
-    K = isnothing(K_) ? K : K_
+    Xstar = Ut * [X  G]
+    Ystar = Ut * Ytilde
 
     # Define weighted sum of squares
     wXstar = w_n .* Xstar
     Swxx = vec(sum(wXstar .* Xstar, dims = 1))
 
-    # Initialize indices for the non-null β's         
-    inds = findall(x -> x != 0, vec(β))
+    # Initialize residuals
+    r = Ystar - view(Xstar, :, β.nzind) * β.nzval
 
+    # Sequence of λ
+    λ_seq, K = lambda_seq(Ystar, Xstar; weights = w_n, penalty_factor = p_f)
+    K = isnothing(K_) ? K : K_
+
+    # GIC penalty parameter
+    if GIC == "HDBIC"
+        a_n = log(log(n)) * log(p)
+    elseif GIC == "BIC"
+        a_n = log(n)
+    elseif GIC == "AIC"
+        a_n = 2
+    end
+    
+    # Fit penalized model
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, a_n)
+    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, path.GIC)
+end
+
+# Controls early stopping criteria with automatic λ
+const MIN_DEV_FRAC_DIFF = 1e-5
+const MAX_DEV_FRAC = 0.999
+
+# Function to fit a penalised mixed model
+function pglmm_fit(
+    ::Binomial,
+    Ytilde::Vector{Float64},
+    y::Vector{Int64},
+    Xstar::Matrix{Float64},
+    nulldev::Float64,
+    r::Vector{Float64},
+    w::Vector{Float64},
+    β::SparseVector{Float64, Int64},
+    p_f::Vector{Float64},
+    λ_seq::Vector{Float64},
+    K::Int64,
+    UD_inv::Matrix{Float64},
+    Ut::Matrix{Float64},
+    wXstar::Matrix{Float64},
+    Swxx::Vector{Float64},
+    verbose::Bool,
+    irwls_tol::Float64,
+    irwls_maxiter::Int64,
+    criterion,
+    a_n::Float64  
+)
     # Initialize array to store output for each λ
-    betas = sparse(Array{Float64}(undef, size(Xstar, 2), K))
-    converged = Array{Bool}(undef, K)
-    pct_dev = Array{Float64}(undef, K)
+    betas = zeros(size(Xstar, 2), K)
+    pct_dev = zeros(Float64, K)
+    dev_ratio = convert(Float64, NaN)
+    GIC = zeros(Float64, K)
 
     # Loop through sequence of λ
-    for i = 1:K
-
+    i = 0
+    for _ = 1:K
+        # Next iterate
+        i += 1
+        converged = false
+        
         # Current value of λ
         λ = λ_seq[i]
 
-        # Initialize objective function
-        loss = Inf
-
+        # Initialize objective function and save previous deviance ratio
+        dev = loss = convert(Float64, Inf)
+        last_dev_ratio = dev_ratio
+        
         # Penalized iterative weighted least squares (IWLS)
-        for _ in 1:irwls_maxiter
-   
-            # Run coordinate descent inner loop to obtain β
-            β_0 = β 
-            β = glmnet(Xstar, Ystar; weights = w_n, penalty_factor = p_f, lambda = [λ], intercept = false).betas
-            #r = Ystar - Xstar[:, inds] * β_0[inds]
-            #β, inds = cd_lasso(r, Xstar, wXstar, Swxx; β_0 = β_0, p_f = p_f, λ = λ)
+        for irwls in 1:irwls_maxiter
 
-            # Update working response
-            Ystar0 = Ystar
-            Ystar, μ = wrkresp()  
+            # Run coordinate descent inner loop to update β and r
+            β, r = cd_lasso(r, Xstar, wXstar, Swxx; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, p_f = p_f, λ = λ, criterion = criterion)
 
+            # Update μ
+            μ = updateμ(r, Ytilde, UD_inv)
+            
             # Update deviance and loss function
-            loss0 = loss
-            dev = -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + sum(w .* (1 .- 4 * w) .* (Ystar - Xstar[:,inds] * β[inds]).^2)
-            loss = dev/2 + λ * sum(p_f[inds] .* abs.(β[inds]))
+            prev_loss = loss
+            dev = LogisticDeviance(y, r, w, μ)
+            loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
             
             # If loss function did not decrease, take a half step to ensure convergence
-            s = 1.0
-            d = β - β_0
-            ∇f = -Xstar[:,inds]' * (w .* (Ystar0 - Xstar[:,inds] * β_0[inds]))
-            Δ = ∇f' * d[inds] + λ * (sum(p_f[inds] .* abs.(β[inds])) - sum(p_f[inds] .* abs.(β_0[inds])))    
-            while loss > loss0 + δ * s * Δ
-                s /= 2
-                β = β_0 + s * d
-                Ystar, μ = wrkresp() 
-                dev = -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + sum(w .* (1 .- 4 * w) .* (Ystar - Xstar[:,inds] * β[inds]).^2)
-                loss = dev/2 + λ * sum(p_f[inds] .* abs.(β[inds]))
+            if loss > prev_loss + length(μ)*eps(prev_loss)
+                verbose && println("step-halving because loss=$loss > $prev_loss + $(length(μ)*eps(prev_loss)) = length(μ)*eps(prev_loss)")
+            end 
+            
+            #=   
+                s = 1.0
+                d = β - β_last
+                ∇f = -Xstar[:,d.nzind]' * (w .* (Ystar0 - Xstar[:,β_last.nzind] * β_last.nzval))
+                Δ = ∇f' * d.nzval + λ * (sum(p_f[β.nzind] .* abs.(β.nzval)) - sum(p_f[β_last.nzind] .* abs.(β_last.nzval)))    
+                while loss > prev_loss + δ * s * Δ
+                    s /= 2
+                    β = β_last + s * d
+                    Ytilde, μ = wrkresp(y, r, Ytilde, UD_inv) 
+                    dev = model_dev(y, r, w, μ)
+                    loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
+                end
             end
+            =#
+
+            # Update working response and residuals
+            Ytilde, r = wrkresp(y, r, μ, Ytilde, Ut)
 
             # Check termination conditions
-            converged[i] = abs(loss - loss0) < irwls_tol * loss
-            converged[i] && break
+            converged = abs(loss - prev_loss) < irwls_tol * loss
+            converged && verbose && println("Number of irwls iterations = $irwls at $i th value of λ.")
+            converged && break 
+
         end
+        @assert converged "IRWLS failed to converge in $irwls_maxiter iterations at λ = $λ"
 
         # Store ouput from IRWLS loop
-        betas[:, i] = β 
-        pct_dev[i] = 1 - dev/nulldev
-        @assert converged[i] "IRWLS failed to converge in $irwls_maxiter iterations at λ = $λ"
+        betas[:, i] = convert(Vector{Float64}, β)
+        dev_ratio = dev/nulldev
+        pct_dev[i] = 1 - dev_ratio
+        GIC[i] = dev + a_n * length(β.nzind[2:end])
+
+        # Test whether we should continue
+        (last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    # Display summary output
-    df = [length(findall(x -> x != 0, vec(betas[:,k]))) for k in 1:K]
-    show(stdout, "text/plain", ["" "df" "pct_dev" "λ" "converged"; collect(1:K) df pct_dev[1:K] λ_seq[1:K] converged[1:K]])
-    return(betas = betas)
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[1:i])
+end
+
+function pglmm_fit(
+    ::Normal,
+    Ytilde::Vector{Float64},
+    y::Vector{Float64},
+    Xstar::Matrix{Float64},
+    nulldev::Float64,
+    r::Vector{Float64},
+    w::Vector{Float64},
+    β::SparseVector{Float64, Int64},
+    p_f::Vector{Float64},
+    λ_seq::Vector{Float64},
+    K::Int64,
+    UD_inv::Matrix{Float64},
+    Ut::Matrix{Float64},
+    wXstar::Matrix{Float64},
+    Swxx::Vector{Float64},
+    verbose::Bool,
+    irwls_tol::Float64,
+    irwls_maxiter::Int64,
+    a_n::Float64
+)
+    # Initialize array to store output for each λ
+    betas = zeros(size(Xstar, 2), K)
+    pct_dev = zeros(Float64, K)
+    dev_ratio = convert(Float64, NaN)
+
+    # Loop through sequence of λ
+    i = 0
+    for _ = 1:K
+        # Next iterate
+        i += 1
+
+        # Print current iteration
+        verbose && println("i = ", i)
+        
+        # Current value of λ
+        λ = λ_seq[i]
+
+        # Save previous deviance ratio
+        last_dev_ratio = dev_ratio
+
+        # Run coordinate descent inner loop to update β and r
+        β, r = cd_lasso(r, Xstar, wXstar, Swxx; family = Normal(), β = β, p_f = p_f, λ = λ)
+
+        # Update deviance
+        dev = NormalDeviance(r, w)
+
+        # Store ouput
+        betas[:, i] = convert(Vector{Float64}, β)
+        dev_ratio = dev/nulldev
+        pct_dev[i] = 1 - dev_ratio
+
+        # Test whether we should continue
+        (last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF || pct_dev[i] > MAX_DEV_FRAC) && break
+    end
+
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i])
+end
+
+# Function to perform coordinate descent with a lasso penalty
+function cd_lasso(
+    # positional arguments
+    r::Vector{Float64},
+    X::Matrix{Float64},
+    wX::Matrix{Float64}, 
+    Swxx::Vector{Float64};
+    #keywords arguments
+    family::UnivariateDistribution,
+    β::SparseVector{Float64},
+    Ytilde::Vector{Float64},
+    y::Vector{Int64},
+    w::Vector{Float64}, 
+    UD_inv::Matrix{Float64},
+    p_f::Vector{Float64} = ones(size(X, 2)), 
+    λ::Float64,
+    cd_maxiter::Integer = 100000,
+    cd_tol::Real=1e-8,
+    criterion
+    )
+
+    converged = false
+    maxΔ = zero(Float64)
+    loss = Inf
+  
+    for cd_iter in 1:cd_maxiter
+        # At firs iteration, perform one coordinate cycle and 
+        # record active set of coefficients that are nonzero
+        if cd_iter == 1 || converged
+            for j in 1:size(X, 2)
+                v = dot(view(wX, :, j), r)
+                λj = λ * p_f[j]
+
+                last_β = β[j]
+                if last_β != 0
+                    v += last_β * Swxx[j]
+                else
+                    # Adding a new variable to the model
+                    abs(v) < λj && continue
+                end
+                new_β = softtreshold(v, λj) / Swxx[j]
+                r += view(X, :, j) * (last_β - new_β)
+
+                maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
+                β[j] = new_β
+            end
+
+            # Check termination condition at last iteration
+            if criterion == :obj
+                # Update μ
+                μ = updateμ(r, Ytilde, UD_inv)
+
+                # Update deviance and loss function
+                prev_loss = loss
+                dev = model_dev(family, y, r, w, μ)
+                loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
+
+                # Check termination condition
+                converged && abs(loss - prev_loss) < cd_tol * loss && break
+
+            elseif criterion == :coef
+                converged && maxΔ < cd_tol && break
+            end
+        end
+
+        # Cycle over coefficients in active set only until convergence
+        maxΔ = zero(Float64)
+
+        for j in β.nzind
+            last_β = β[j]
+            last_β == 0 && continue
+            
+            v = dot(view(wX, :, j), r) + last_β * Swxx[j]
+            new_β = softtreshold(v, λ * p_f[j]) / Swxx[j]
+            r += view(X, :, j) * (last_β - new_β)
+
+            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
+            β[j] = new_β
+        end
+
+        # Check termination condition before last iteration
+        if criterion == :obj
+            # Update μ
+            μ = updateμ(r, Ytilde, UD_inv)
+
+            # Update deviance and loss function
+            prev_loss = loss
+            dev = model_dev(family, y, r, w, μ)
+            loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
+
+            # Check termination condition
+            converged = abs(loss - prev_loss) < cd_tol * loss 
+
+        elseif criterion == :coef
+            converged = maxΔ < cd_tol
+        end
+    end
+
+    # Assess convergence of coordinate descent
+    @assert converged "Coordinate descent failed to converge in $cd_maxiter iterations at λ = $λ"
+
+    return(β, r)
+
+end
+
+modeltype(::Normal) = "Least Squares GLMNet"
+modeltype(::Binomial) = "Logistic"
+
+weight(::Normal, eigvals::Vector{Float64}, φ::Float64) = (1 ./(φ .+ eigvals))
+weight(::Binomial, eigvals::Vector{Float64}, φ::Int64) = (1 ./(4 .+ eigvals))
+
+struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
+    family::F
+    a0::A                            # intercept values for each solution
+    betas::B                         # coefficient values for each solution
+    null_dev::Float64                # Null deviance of the model
+    pct_dev::Vector{Float64}       # R^2 values for each solution
+    lambda::Vector{Float64}          # lamda values corresponding to each solution
+    npasses::Int                     # actual number of passes over the
+                                     # data for all lamda values
+    GIC::Vector{Float64}
+end
+
+function show(io::IO, g::pglmmPath)
+    df = [length(findall(x -> x != 0, vec(view(g.betas, :,k)))) for k in 1:size(g.betas, 2)]
+    println(io, "$(modeltype(g.family)) Solution Path ($(size(g.betas, 2)) solutions for $(size(g.betas, 1)) predictors):") #in $(g.npasses) passes):"
+    print(io, CoefTable(Union{Vector{Int},Vector{Float64}}[df, g.pct_dev, g.lambda], ["df", "pct_dev", "λ"], []))
 end
 
 # Function to compute sequence of values for λ
 function lambda_seq(
-    y::AbstractVector{Float64}, 
-    X::AbstractMatrix{Float64}; 
-    weights::AbstractVector{Float64},
-    penalty_factor::AbstractVector{Float64},
+    y::Vector{Float64}, 
+    X::Matrix{Float64}; 
+    weights::Vector{Float64},
+    penalty_factor::Vector{Float64},
     K::Integer = 100
     )
 
@@ -202,7 +422,7 @@ function lambda_seq(
 end
 
 # Define Softtreshold function
-function  softtreshold(z::AbstractFloat{Float64}, γ::AbstractFloat{Float64}) :: AbstractFloat{Float64}
+function  softtreshold(z::Float64, γ::Float64) :: Float64
     if z > γ
         z - γ
     elseif z < -γ
@@ -212,80 +432,51 @@ function  softtreshold(z::AbstractFloat{Float64}, γ::AbstractFloat{Float64}) ::
     end
 end
 
-# Function to update working response at each iteration
-function wrkresp()
-    η = U * Ystar0 - 4 * UD_inv * Ystar0 + 4 * UD_invUX[:,inds] * β[inds]
-    μ = GLM.linkinv.(LogitLink(), η)
-    Ystar = U' * vec(η + 4 * (y - μ)) 
-    return(Ystar, μ)
+# Function to update working response and residual
+function wrkresp(
+    y::Vector{Int64},
+    r::Vector{Float64},
+    μ::Vector{Float64},
+    Ytilde::Vector{Float64},
+    Ut::Matrix{Float64}
+)
+    η = GLM.linkfun.(LogitLink(), μ)
+    r += Ut * (η + 4 * (y - μ) - Ytilde)
+    Ytilde = η + 4 * (y - μ)
+    return(Ytilde, r)
 end
 
-# Function to perform coordinate descent with a lasso penalty
-function cd_lasso(
-    # positional arguments
-    r::AbstractVector{Float64},
-    X::AbstractMatrix{Float64},
-    wX::AbstractMatrix{Float64}, 
-    Swxx::AbstractVector{Float64};
-    #keywords arguments
-    β_0::CompressedPredictorMatrix,
-    p_f::AbstractVector{Float64} = ones(size(X, 2)), 
-    λ::AbstractFloat,
-    cd_maxiter::Integer = 100000,
-    cd_tol::Real=1e-7
-    )
+# Function to update linear predictor and mean at each iteration
+const PMIN = 1e-5
+const PMAX = 1-1e-5
+function updateμ(
+    r::Vector{Float64},
+    Ytilde::Vector{Float64},
+    UD_inv::Matrix{Float64},
+)
+    η = Ytilde - 4 * UD_inv * r
+    μ = GLM.linkinv.(LogitLink(), η)
+    μ = [μ[i] < PMIN ? PMIN : μ[i] > PMAX ? PMAX : μ[i] for i in 1:length(μ)]
+    return(μ)
+end
 
-    converged = false
-    maxΔ = zero(Float64)
+# Functions to calculate deviance
+model_dev(::Binomial, y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = LogisticDeviance(y, r, w, μ)
+model_dev(::Normal, y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = NormalDeviance(r, w)
 
-    for cd_iter in 1:cd_maxiter
-        # At firs iteration, perform one coordinate cycle and 
-        # record active set of coefficients that are nonzero
-        if cd_iter == 1 || converged
-            inds = Int64[]
+function LogisticDeviance(
+    y::Vector{Int64},
+    r::Vector{Float64},
+    w::Vector{Float64},
+    μ::Vector{Float64}
+)
+    -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + sum(w .* (1 .- 4 * w) .* r.^2)
 
-            for j in 1:size(X, 2)
-                v = dot(wX[:, j], r)
-                λj = λ * p_f[j]
-                
-                if β_0[j] != 0
-                    v += β_0[j] * Swxx[j]
-                    append!(inds, j)
-                else
-                    # Adding a new variable to the model
-                    abs(v) < λj && continue
-                    append!(inds, j)
-                end
-                β[j] = softtreshold(v, λj) / Swxx[j]
-                r += X[:, j] * (β_0[j] - β[j])
+end
 
-                maxΔ = max(maxΔ, Swxx[j] * (β_0[j] - β[j])^2)
-            end
-
-            # Check termination condition at last iteration
-            converged && maxΔ < cd_tol && break
-        end
-
-        # Cycle over coefficients in active set only until convergence
-        sort!(inds)
-        for j in inds
-            β_0[j] = β[j]
-            β[j] == 0 && continue
-            
-            v = dot(wX[:, j], r) + β_0[j] * Swxx[j]
-            β[j] = softtreshold(v, λ * p_f[j]) / Swxx[j]
-            r += X[:, j] * (β_0[j] - β[j])
-
-            maxΔ = max(maxΔ, Swxx[j] * (β_0[j] - β[j])^2)
-        end
-
-        # Check termination condition before last iteration
-        converged = maxΔ < cd_tol
-    end
-
-    # Assess convergence of coordinate descent
-    @assert converged "Coordinate descent failed to converge in $cd_maxiter iterations at λ = $λ"
-
-    return(β, inds)
-
+function NormalDeviance(
+    r::Vector{Float64},
+    w::Vector{Float64}
+)
+    dot(w, r.^2)
 end
