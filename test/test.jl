@@ -1,10 +1,10 @@
 # Load packages
 using Pkg; Pkg.activate("..")
-using GLM, GLMNet, SnpArrays, CSV, DataFrames
 using PenalizedGLMM
+using GLM, GLMNet, SnpArrays, CSV, DataFrames
 
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["data/", "HDBIC"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["../Simulations/data/data1/", "ALL"] : ARGS
 
 # Define directories where data is located
 const datadir = ARGS_[1]
@@ -19,10 +19,15 @@ const grmfile = datadir * "grm.txt.gz"
 nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile)
 
 # Fit a penalized logistic mixed model
-modelfit = pglmm(nullmodel, plinkfile, irwls_maxiter = 50, verbose = true, GIC = ARGS_[2])
+modelfit = pglmm(nullmodel, plinkfile, irwls_maxiter = 50, verbose = true, GIC_crit = ARGS_[2])
+
+# Genetic predictors effects at each λ   
+pglmm_β = modelfit.betas[3:end,:]
 
 # Find λ that gives minimum GIC
-pglmm_β = modelfit.betas[:, argmin(modelfit.GIC)]
+pglmmAIC_β = pglmm_β[:, argmin(modelfit.GIC["AIC",:])]
+pglmmBIC_β = pglmm_β[:, argmin(modelfit.GIC["BIC",:])]
+pglmmHDBIC_β = pglmm_β[:, argmin(modelfit.GIC["HDBIC",:])]
 
 #----------------------------
 # Compare with glmnet
@@ -42,23 +47,44 @@ y = convert(Matrix{Float64}, [covdf.y .== 0 covdf.y .== 1])
 
 # Fit a penalized logistic model using GLMNet
 fit_glmnet = glmnet(X, y, Binomial(), penalty_factor = [zeros(length(varlist)); ones(p)])
-glmnet_β = fit_glmnet.betas[:, argmin(modelfit.GIC)]
+glmnet_β = fit_glmnet.betas[(length(varlist) + 1):end,:]
 
 # Select best penalized logistic model using GLMNet cross-validation
 cv_glmnet = glmnetcv(X, y, Binomial(), penalty_factor = [zeros(length(varlist)); ones(p)])
-glmnetcv_β = cv_glmnet.path.betas[:, argmin(cv_glmnet.meanloss)]
+glmnetcv_β = cv_glmnet.path.betas[(length(varlist) + 1):end, argmin(cv_glmnet.meanloss)]
 
 #---------------------------------
 # Compare results with real values
 #---------------------------------
+# Read file with real values
 betas = CSV.read(datadir * "betas.txt", DataFrame)
 rename!(betas, :beta => :true_beta)
-betas.pglmm_beta = pglmm_β[3:end]
-betas.glmnet_beta = glmnet_β[(length(varlist) + 1):end]
-betas.glmnetcv_beta = glmnetcv_β[(length(varlist) + 1):end]
+
+# Save betas for pglmm with AIC, BIC and HDBIC, and glmnet_cv
+betas.pglmmAIC_beta = pglmmAIC_β
+betas.pglmmBIC_beta = pglmmBIC_β
+betas.pglmmHDBIC_beta = pglmmHDBIC_β
+betas.glmnetcv_beta = glmnetcv_β
+
+# False positive rate (FPR) at 5% for pglmm and glmnet
+betas.pglmmFPR5_beta = pglmm_β[:, findlast(mean((pglmm_β .> 0) .& (betas.true_beta .== 0), dims=1) .< 0.05)[2]]
+betas.glmnetFPR5_beta = glmnet_β[:, findlast(mean((glmnet_β .> 0) .& (betas.true_beta .== 0), dims=1) .< 0.05)[2]]
+
+# Estimated variance compoenent τ
 betas.tau = repeat(nullmodel.τ, nrow(betas))
 
-CSV.write(datadir * "results.txt", select(betas, :true_beta, :pglmm_beta, :glmnet_beta, :glmnetcv_beta, :tau))
+# Save results
+CSV.write(datadir * "results.txt", select(betas, 
+                                          :true_beta, 
+                                          :pglmmAIC_beta,
+                                          :pglmmBIC_beta,
+                                          :pglmmHDBIC_beta, 
+                                          :pglmmFPR5_beta,
+                                          :glmnetcv_beta, 
+                                          :glmnetFPR5_beta, 
+                                          :tau
+                                          )
+)
 
 # #------------------------------
 # # Model with two random effects

@@ -27,7 +27,7 @@ function pglmm(
     verbose::Bool = false,
     normalize_weights::Bool = false,
     criterion = :coef,
-    GIC::String = "HDBIC",
+    GIC_crit::String = "HDBIC",
     kwargs...
     )
 
@@ -91,17 +91,26 @@ function pglmm(
     K = isnothing(K_) ? K : K_
 
     # GIC penalty parameter
-    if GIC == "HDBIC"
-        a_n = log(log(n)) * log(p)
-    elseif GIC == "BIC"
-        a_n = log(n)
-    elseif GIC == "AIC"
-        a_n = 2
+    if GIC_crit == "HDBIC"
+        a_n = [log(log(n)) * log(p)]
+    elseif GIC_crit == "BIC"
+        a_n = [log(n)]
+    elseif GIC_crit == "AIC"
+        a_n = [2]
+    elseif GIC_crit == "ALL"
+        GIC_crit = ["HDBIC", "BIC", "AIC"]
+        a_n = [log(log(n)) * log(p), log(n), 2]
     end
     
     # Fit penalized model
     path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, a_n)
-    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, path.GIC)
+
+    # Create a Named Array for GIC
+    GIC = NamedArray(path.GIC)
+    setnames!(GIC, convert(Vector{String}, GIC_crit), 1)
+
+    # Return lasso path
+    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, GIC)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -129,13 +138,13 @@ function pglmm_fit(
     irwls_tol::Float64,
     irwls_maxiter::Int64,
     criterion,
-    a_n::Float64  
+    a_n::Vector{Float64}  
 )
     # Initialize array to store output for each λ
     betas = zeros(size(Xstar, 2), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    GIC = zeros(Float64, K)
+    GIC = zeros(Float64, length(a_n), K) 
 
     # Loop through sequence of λ
     i = 0
@@ -200,13 +209,13 @@ function pglmm_fit(
         betas[:, i] = convert(Vector{Float64}, β)
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
-        GIC[i] = dev + a_n * length(β.nzind[2:end])
+        GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
 
         # Test whether we should continue
         (last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[1:i])
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
 end
 
 function pglmm_fit(
@@ -228,12 +237,13 @@ function pglmm_fit(
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
-    a_n::Float64
+    a_n::Vector{Float64} 
 )
     # Initialize array to store output for each λ
     betas = zeros(size(Xstar, 2), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
+    GIC = zeros(Float64, length(a_n), K) 
 
     # Loop through sequence of λ
     i = 0
@@ -260,12 +270,13 @@ function pglmm_fit(
         betas[:, i] = convert(Vector{Float64}, β)
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
+        GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
 
         # Test whether we should continue
         (last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i])
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
 end
 
 # Function to perform coordinate descent with a lasso penalty
@@ -378,17 +389,16 @@ modeltype(::Binomial) = "Logistic"
 
 weight(::Normal, eigvals::Vector{Float64}, φ::Float64) = (1 ./(φ .+ eigvals))
 weight(::Binomial, eigvals::Vector{Float64}, φ::Int64) = (1 ./(4 .+ eigvals))
-
 struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     family::F
     a0::A                            # intercept values for each solution
     betas::B                         # coefficient values for each solution
     null_dev::Float64                # Null deviance of the model
-    pct_dev::Vector{Float64}       # R^2 values for each solution
+    pct_dev::Vector{Float64}         # R^2 values for each solution
     lambda::Vector{Float64}          # lamda values corresponding to each solution
     npasses::Int                     # actual number of passes over the
                                      # data for all lamda values
-    GIC::Vector{Float64}
+    GIC
 end
 
 function show(io::IO, g::pglmmPath)
