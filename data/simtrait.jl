@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["10000", "0.05" "data/"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["10000", "0.05", "data/"] : ARGS
 
 # Fraction of Caucasian/Non-Caucasian in the first group
 w = 0.5; w = [1, 1 - w] 
@@ -25,25 +25,25 @@ pi1 = 0.1
 p = parse(Int, ARGS_[1])
 
 # Percentage of causal SNPs
-c = parse(Int, ARGS_[2])
+c = parse(Float64, ARGS_[2])
 
 # ------------------------------------------------------------------------
 # Load the covariate file
 # ------------------------------------------------------------------------
 # Read plink fam file
 samples = @chain CSV.read("UKBB.fam", DataFrame; header = false) begin  
-    @select!(FID = :Column1, IID = :Column2)
+    @select!(:FID = :Column1, :IID = :Column2)
 end
 
 # Caucasian individuals
 caucasians = @chain CSV.read("include_Caucasian.txt", DataFrame; header = false) begin
-    @select!(FID = :Column1, IID = :Column2)
+    @select!(:FID = :Column1, :IID = :Column2)
     @transform(:ETHNICITY = "Caucasian", :CAUCASIAN = 1)
 end
     
 # Non-caucasian individuals
 non_caucasians = @chain CSV.read("include_notCaucasian.txt", DataFrame; header = false) begin
-    @select!(FID = :Column1, IID = :Column2)
+    @select!(:FID = :Column1, :IID = :Column2)
     @transform!(:ETHNICITY = "Non-Caucasian", :CAUCASIAN = 0)
 end
 
@@ -143,9 +143,9 @@ b = rand(MvNormal(G * beta, sigma2_g * K + sigma2_d * K_D ))
 logit(x) = log(x / (1 - x))
 expit(x) = exp(x) / (1 + exp(x))
 final_dat = @chain grp_dat begin
-	@transform!(logit_pi = logit(pi0) .+ (logit(pi1) - logit(pi0)) * :CAUCASIAN - log(1.3) * :SEX + log(1.05) * ((:AGE .- 56) / 10) + b)
-    @transform!(pi = expit.(:logit_pi))
-    @transform(y = rand.([Binomial(1, :pi[i]) for i in 1:n]))
+	@transform!(:logit_pi = logit(pi0) .+ (logit(pi1) - logit(pi0)) * :CAUCASIAN - log(1.3) * :SEX + log(1.05) * ((:AGE .- 56) / 10) + b)
+    @transform!(:pi = expit.(:logit_pi))
+    @transform(:y = rand.([Binomial(1, :pi[i]) for i in 1:n]))
     select!(Not([:pi, :logit_pi, :ETHNICITY]))
 end
 
