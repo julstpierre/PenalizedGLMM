@@ -111,7 +111,7 @@ end
 
 # Write GRM to a compressed csv file
 open(GzipCompressorStream, ARGS_[3] * "grm.txt.gz", "w") do stream
-    CSV.write(stream, DataFrame(round.(K, digits = 3), :auto))
+    CSV.write(stream, DataFrame(K), :auto))
 end
 
 # Sample p SNPs randomly accross genome, convert to additive model, scale and impute
