@@ -21,7 +21,7 @@ function pglmm(
     snpmodel = ADDITIVE_MODEL,
     snpinds = nothing,
     geneticrowinds = nothing,
-    irwls_tol::Float64 = 1e-6,
+    irwls_tol::Float64 = 1e-7,
     irwls_maxiter::Integer = 30,
     K_::Union{Nothing, Integer} = nothing,
     verbose::Bool = false,

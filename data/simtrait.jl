@@ -103,15 +103,18 @@ grm_inds = sample(axes(UKBB, 2), 50000, replace = false)
 K = grm(UKBB, method=:GRM, cinds = grm_inds)
 
 # Ensure that K is positive definite
-xi = 1e-4;
-while minimum(eigen(K).values) < 0
-    global K = K + xi * Diagonal(ones(n));
-    global xi = 10*xi;
+function posdef(K::Matrix{Float64}, xi::Float64 = 1e-4, n::Int64 = size(K, 1))
+    while !isposdef(K)
+        K = K + xi * Diagonal(ones(n));
+        xi = 10*xi;
+    end
+    return(K = K)
 end
+K = posdef(K)
 
 # Write GRM to a compressed csv file
 open(GzipCompressorStream, ARGS_[3] * "grm.txt.gz", "w") do stream
-    CSV.write(stream, DataFrame(K), :auto))
+    CSV.write(stream, DataFrame(K), :auto)
 end
 
 # Sample p SNPs randomly accross genome, convert to additive model, scale and impute
