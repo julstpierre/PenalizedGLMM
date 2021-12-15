@@ -10,7 +10,7 @@
 - `snpinds::Union{Nothing,AbstractVector{<:Integer}}`: SNP indices for bed/vcf file.
 - `geneticrowinds::Union{Nothing,AbstractVector{<:Integer}}`: sample indices for bed/vcf file.
 - `irwls_tol::Float64` = 1e-7 (default)`: tolerance for the IRWLS loop.
-- `irwls_maxiter::Integer = 30 (default)`: maximum number of Newton iterations for the IRWLS loop.
+- `irwls_maxiter::Integer = 300 (default)`: maximum number of Newton iterations for the IRWLS loop.
 - `criterion = :coef (default)`: criterion for coordinate descent convergence.
 """
 function pglmm(
@@ -22,7 +22,7 @@ function pglmm(
     snpinds = nothing,
     geneticrowinds = nothing,
     irwls_tol::Float64 = 1e-7,
-    irwls_maxiter::Integer = 30,
+    irwls_maxiter::Integer = 300,
     K_::Union{Nothing, Integer} = nothing,
     verbose::Bool = false,
     normalize_weights::Bool = false,
@@ -212,7 +212,7 @@ function pglmm_fit(
         GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
 
         # Test whether we should continue
-        (last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF || pct_dev[i] > MAX_DEV_FRAC) && break
+        ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0))|| pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
     return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
