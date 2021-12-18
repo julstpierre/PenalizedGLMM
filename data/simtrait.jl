@@ -15,6 +15,9 @@ w = 0.5; w = [1, 1 - w]
 # Fraction of variance due to unobserved shared environmental effect (logit scale)
 h2_d = 0
 
+# Fraction of variance due to polygenic additive effect (logit scale)
+h2_g = 0.5
+
 # Prevalence for Non Caucasian
 pi0 = 0.1 	
 
@@ -130,8 +133,12 @@ SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[3] * "geno")
 # ------------------------------------------------------------------------
 # Variance components
 sigma2 = 2
+sigma2_g = h2_g * sigma2
 sigma2_d = h2_d * sigma2
-sigma2_g = (1 - h2_d) * sigma2
+sigma2_e = (1 - h2_g - h2_d) * sigma2
+
+# Simulate random effects
+b = rand(MvNormal(sigma2_d * K_D + sigma2_e * Diagonal(ones(n))))
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
@@ -143,7 +150,7 @@ beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 logit(x) = log(x / (1 - x))
 expit(x) = exp(x) / (1 + exp(x))
 final_dat = @chain grp_dat begin
-	@transform!(:logit_pi = logit(pi0) .+ (logit(pi1) - logit(pi0)) * :CAUCASIAN - log(1.3) * :SEX + log(1.05) * ((:AGE .- 56) / 10) + G * beta)
+	@transform!(:logit_pi = logit(pi0) .+ (logit(pi1) - logit(pi0)) * :CAUCASIAN - log(1.3) * :SEX + log(1.05) * ((:AGE .- 56) / 10) + G * beta + b)
     @transform!(:pi = expit.(:logit_pi))
     @transform(:y = rand.([Binomial(1, :pi[i]) for i in 1:n]))
     select!(Not([:pi, :logit_pi, :ETHNICITY]))
