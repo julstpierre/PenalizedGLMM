@@ -4,4 +4,4 @@ data/UKBB.fam
 data/include_Caucasian.txt
 data/include_notCaucasian.txt
 data/covars_full.txt
-test
+test/
