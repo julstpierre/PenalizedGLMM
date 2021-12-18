@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["10000", "0.05", "data/"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["10000", "0", "data/"] : ARGS
 
 # Fraction of Caucasian/Non-Caucasian in the first group
 w = 0.5; w = [1, 1 - w] 
@@ -100,7 +100,7 @@ UKBB = SnpArray("UKBB.bed")
 
 # Create GRM using 50000 randomly sampled SNPs
 grm_inds = sample(axes(UKBB, 2), 50000, replace = false)
-K = grm(UKBB, method=:GRM, cinds = grm_inds)
+K = 2 * grm(UKBB, method=:GRM, cinds = grm_inds)
 
 # Ensure that K is positive definite
 function posdef(K::Matrix{Float64}, xi::Float64 = 1e-4, n::Int64 = size(K, 1))
@@ -135,18 +135,15 @@ sigma2_g = (1 - h2_d) * sigma2
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
-s = sample(1:p, Integer(round(p*c)))
+s = sample(1:p, Integer(round(p*c)), replace = false)
 W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
-
-# Simulate random effects
-b = rand(MvNormal(G * beta, sigma2_g * K + sigma2_d * K_D ))
 
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
 expit(x) = exp(x) / (1 + exp(x))
 final_dat = @chain grp_dat begin
-	@transform!(:logit_pi = logit(pi0) .+ (logit(pi1) - logit(pi0)) * :CAUCASIAN - log(1.3) * :SEX + log(1.05) * ((:AGE .- 56) / 10) + b)
+	@transform!(:logit_pi = logit(pi0) .+ (logit(pi1) - logit(pi0)) * :CAUCASIAN - log(1.3) * :SEX + log(1.05) * ((:AGE .- 56) / 10) + G * beta)
     @transform!(:pi = expit.(:logit_pi))
     @transform(:y = rand.([Binomial(1, :pi[i]) for i in 1:n]))
     select!(Not([:pi, :logit_pi, :ETHNICITY]))
