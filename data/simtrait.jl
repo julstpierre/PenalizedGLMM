@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.5", "10000", "0", "data/"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.5", "10000", "0.005", "data/"] : ARGS
 
 # Fraction of Caucasian/Non-Caucasian in the first group
 w = 0.5; w = [1, 1 - w] 
@@ -132,13 +132,12 @@ SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[4] * "geno")
 # Simulate phenotypes
 # ------------------------------------------------------------------------
 # Variance components
-sigma2 = 2
-sigma2_g = h2_g * sigma2
-sigma2_d = h2_d * sigma2
-sigma2_e = (1 - h2_g - h2_d) * sigma2
+sigma2_e = pi^2 /3
+sigma2_g = h2_g / (1 - h2_g - h2_d) * sigma2_e
+sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
 # Simulate random effects
-b = rand(MvNormal(sigma2_d * K_D + sigma2_e * Diagonal(ones(n))))
+b = sigma2_d > 0 ? rand(MvNormal(sigma2_d * K_D)) : zeros(n)
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
