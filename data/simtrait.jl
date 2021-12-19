@@ -132,7 +132,7 @@ SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[4] * "geno")
 # Simulate phenotypes
 # ------------------------------------------------------------------------
 # Variance components
-sigma2_e = pi^2 /3
+sigma2_e = pi^2 / 3
 sigma2_g = h2_g / (1 - h2_g - h2_d) * sigma2_e
 sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 

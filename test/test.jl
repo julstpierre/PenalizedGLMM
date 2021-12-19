@@ -53,24 +53,35 @@ glmnet_β = fit_glmnet.betas[(length(varlist) + 1):end,:]
 cv_glmnet = glmnetcv(X, y, Binomial(), penalty_factor = [zeros(length(varlist)); ones(p)])
 glmnetcv_β = cv_glmnet.path.betas[(length(varlist) + 1):end, argmin(cv_glmnet.meanloss)]
 
-# #------------------------------
-# # Model with two random effects
-# #------------------------------
-# # read covariate file
-# covdf = CSV.read(covfile, DataFrame)
-# n = size(covdf, 1)
+#---------------------------------
+# Compare results with real values
+#---------------------------------
+# Read file with real values
+betas = CSV.read(datadir * "betas.txt", DataFrame)
+rename!(betas, :beta => :true_beta)
 
-# # Environment relatedness matrix
-# K_D = Array{Float64}(undef, n, n)
-# for i in 1:n 
-#     for j in i:n
-# 		K_D[i, j] = ifelse(covdf.Exposed[i] == covdf.Exposed[j], 1, 0)
-#     end
-# end
-# LowerTriangular(K_D) .= transpose(UpperTriangular(K_D))
+# Save betas for pglmm with AIC, BIC and HDBIC, and glmnet_cv
+betas.pglmmAIC_beta = pglmmAIC_β
+betas.pglmmBIC_beta = pglmmBIC_β
+betas.pglmmHDBIC_beta = pglmmHDBIC_β
+betas.glmnetcv_beta = glmnetcv_β
 
-# # Estimate covariate effects and variance components under the null
-# nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile, M = push!(Any[], K_D))
+# False positive rate (FPR) at 5% for pglmm and glmnet
+betas.pglmmFPR5_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0)) / sum(betas.true_beta .== 0) .< 0.05)[2]]
+betas.glmnetFPR5_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0)) / sum(betas.true_beta .== 0) .< 0.05)[2]]
 
-# # Fit a penalized model
-# modelfit = pglmm(nullmodel, plinkfile)
+# Estimated variance compoenent τ
+betas.tau = repeat(nullmodel.τ, nrow(betas))
+
+# Save results
+CSV.write(datadir * "results.txt", select(betas, 
+                                          :true_beta, 
+                                          :pglmmAIC_beta,
+                                          :pglmmBIC_beta,
+                                          :pglmmHDBIC_beta, 
+                                          :pglmmFPR5_beta,
+                                          :glmnetcv_beta, 
+                                          :glmnetFPR5_beta, 
+                                          :tau
+                                          )
+)
