@@ -67,8 +67,8 @@ betas.pglmmHDBIC_beta = pglmmHDBIC_β
 betas.glmnetcv_beta = glmnetcv_β
 
 # False positive rate (FPR) at 5% for pglmm and glmnet
-betas.pglmmFPR5_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0)) / sum(betas.true_beta .== 0) .< 0.05)[2]]
-betas.glmnetFPR5_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0)) / sum(betas.true_beta .== 0) .< 0.05)[2]]
+betas.pglmmFPR5_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.05)[2]]
+betas.glmnetFPR5_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.05)[2]]
 
 # Estimated variance compoenent τ
 betas.tau = repeat(nullmodel.τ, nrow(betas))

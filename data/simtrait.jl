@@ -7,10 +7,10 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.5", "10000", "0.005", "data/"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.3", "0.1", "10000", "0.003", "data/"] : ARGS
 
 # Fraction of Caucasian/Non-Caucasian in the first group
-w = 0.5; w = [1, 1 - w] 
+w = 0.5; w = [w, 1 - w] 
 
 # Fraction of variance due to unobserved shared environmental effect (logit scale)
 h2_d = 0
@@ -22,13 +22,13 @@ h2_g = parse(Float64, ARGS_[1])
 pi0 = 0.1 	
 
 # Prevalence for Caucasian
-pi1 = 0.1 	
+pi1 = parse(Float64, ARGS_[2])	
 
 # Number of snps to randomly select accros genome
-p = parse(Int, ARGS_[2])
+p = parse(Int, ARGS_[3])
 
 # Percentage of causal SNPs
-c = parse(Float64, ARGS_[3])
+c = parse(Float64, ARGS_[4])
 
 # ------------------------------------------------------------------------
 # Load the covariate file
@@ -116,7 +116,7 @@ end
 K = posdef(K)
 
 # Write GRM to a compressed csv file
-open(GzipCompressorStream, ARGS_[4] * "grm.txt.gz", "w") do stream
+open(GzipCompressorStream, ARGS_[5] * "grm.txt.gz", "w") do stream
     CSV.write(stream, DataFrame(K, :auto))
 end
 
@@ -126,7 +126,7 @@ G = convert(Matrix{Float64}, @view(UKBB[:, snp_inds]), center = true, scale = tr
 
 # Save filtered plink file
 rowmask, colmask = trues(n), [col in snp_inds for col in 1:size(UKBB, 2)]
-SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[4] * "geno")
+SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[5] * "geno")
 
 # ------------------------------------------------------------------------
 # Simulate phenotypes
@@ -156,8 +156,8 @@ final_dat = @chain grp_dat begin
 end
 
 # Write csv files
-CSV.write(ARGS_[4] * "covariate.txt", final_dat)
+CSV.write(ARGS_[5] * "covariate.txt", final_dat)
 
 df = SnpData("UKBB").snp_info[snp_inds, [1,2,4]]
 df.beta = beta
-CSV.write(ARGS_[4] * "betas.txt", df)
+CSV.write(ARGS_[5] * "betas.txt", df)
