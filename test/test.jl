@@ -10,7 +10,7 @@ const ARGS_ = isempty(ARGS) ? ["../data/", "ALL"] : ARGS
 const datadir = ARGS_[1]
 const covfile = datadir * "covariate.txt"
 const plinkfile = datadir * "geno"
-const grmfile = datadir * "grm.txt.gz"
+const grmfile = "grm.txt.gz"
 
 #------------------------------
 # Model with one random effect 

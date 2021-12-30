@@ -7,28 +7,28 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.3", "0.1", "10000", "0.003", "data/"] : ARGS
-
-# Fraction of Caucasian/Non-Caucasian in the first group
-w = 0.5; w = [w, 1 - w] 
-
-# Fraction of variance due to unobserved shared environmental effect (logit scale)
-h2_d = 0
+const ARGS_ = isempty(ARGS) ? ["0.3", "0", "0.1", "0.1", "10000", "0.003", "data/"] : ARGS
 
 # Fraction of variance due to polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
 
+# Fraction of residual variance due to unobserved shared environmental effect (logit scale)
+h2_d = parse(Float64, ARGS_[2])
+
 # Prevalence for Non Caucasian
-pi0 = 0.1 	
+pi0 = parse(Float64, ARGS_[3])	
 
 # Prevalence for Caucasian
-pi1 = parse(Float64, ARGS_[2])	
+pi1 = parse(Float64, ARGS_[4])	
 
 # Number of snps to randomly select accros genome
-p = parse(Int, ARGS_[3])
+p = parse(Int, ARGS_[5])
 
 # Percentage of causal SNPs
-c = parse(Float64, ARGS_[4])
+c = parse(Float64, ARGS_[6])
+
+# Fraction of Caucasian/Non-Caucasian in the first group
+w = 0.5; w = [w, 1 - w] 
 
 # ------------------------------------------------------------------------
 # Load the covariate file
@@ -101,9 +101,10 @@ LowerTriangular(K_D) .= transpose(UpperTriangular(K_D))
 # Read plink bim file
 UKBB = SnpArray("UKBB.bed")
 
-# Create GRM using 50000 randomly sampled SNPs
-grm_inds = sample(axes(UKBB, 2), 50000, replace = false)
-K = 2 * grm(UKBB, method=:GRM, cinds = grm_inds)
+# Sample 10,000 SNPs with infinitesimal polygenic effects
+grm_inds = sample(axes(UKBB, 2), 10000, replace = false)
+X = convert(Matrix{Float64}, @view(UKBB[:, grm_inds]), center = true, scale = true, impute = true)
+K = X * X' / length(grm_inds)
 
 # Ensure that K is positive definite
 function posdef(K::Matrix{Float64}, xi::Float64 = 1e-4, n::Int64 = size(K, 1))
@@ -115,18 +116,13 @@ function posdef(K::Matrix{Float64}, xi::Float64 = 1e-4, n::Int64 = size(K, 1))
 end
 K = posdef(K)
 
-# Write GRM to a compressed csv file
-open(GzipCompressorStream, ARGS_[5] * "grm.txt.gz", "w") do stream
-    CSV.write(stream, DataFrame(K, :auto))
-end
-
-# Sample p SNPs randomly accross genome, convert to additive model, scale and impute
+# Sample p candidate SNPs randomly accross genome, convert to additive model, scale and impute
 snp_inds = sample(setdiff(axes(UKBB, 2), grm_inds), p, replace = false, ordered = true)
 G = convert(Matrix{Float64}, @view(UKBB[:, snp_inds]), center = true, scale = true, impute = true)
 
 # Save filtered plink file
 rowmask, colmask = trues(n), [col in snp_inds for col in 1:size(UKBB, 2)]
-SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[5] * "geno")
+SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[7] * "geno")
 
 # ------------------------------------------------------------------------
 # Simulate phenotypes
@@ -137,12 +133,12 @@ sigma2_g = h2_g / (1 - h2_g - h2_d) * sigma2_e
 sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
 # Simulate random effects
-b = sigma2_d > 0 ? rand(MvNormal(sigma2_d * K_D)) : zeros(n)
+b = c > 0 ? rand(MvNormal(0.5 * sigma2_g * K + sigma2_d * K_D)) : rand(MvNormal(sigma2_g * K + sigma2_d * K_D))
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
 s = sample(1:p, Integer(round(p*c)), replace = false)
-W[s] .= sigma2_g/length(s)
+W[s] .= sigma2_g/(2 * length(s))
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate binary traits
@@ -156,8 +152,8 @@ final_dat = @chain grp_dat begin
 end
 
 # Write csv files
-CSV.write(ARGS_[5] * "covariate.txt", final_dat)
+CSV.write(ARGS_[7] * "covariate.txt", final_dat)
 
 df = SnpData("UKBB").snp_info[snp_inds, [1,2,4]]
 df.beta = beta
-CSV.write(ARGS_[5] * "betas.txt", df)
+CSV.write(ARGS_[7] * "betas.txt", df)

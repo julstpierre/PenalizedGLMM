@@ -44,10 +44,12 @@ fit_ggmix <- ggmix(x = as.matrix(cbind(pheno.cov[,c("AGE","SEX")],G)),
 				  )
 
 # Find lambda that gives minimum GIC				  
-hdbic <- ggmix::gic(fit_ggmix, an = log(log(n)) * log(p))
+aic <- ggmix::gic(fit_ggmix, an = 2)
+bic <- ggmix::gic(fit_ggmix, an = log(n))
 
 # Save betas for ggmix with HDBIC criteria
-ggmixHDBIC_beta <- coef(hdbic)[setdiff(rownames(coef(hdbic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
+ggmixAIC_beta <- coef(aic)[setdiff(rownames(coef(aic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
+ggmixBIC_beta <- coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
 
 # Read file with real values
 true_betas = read.csv("betas.txt")$beta
@@ -58,5 +60,5 @@ v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, mean) < 0.05
 ggmixFPR5_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
 
 #Save results
-write.csv(cbind(ggmixHDBIC_beta, ggmixFPR5_beta), "ggmix_results.txt", quote=FALSE, row.names = FALSE)
-write.csv(t(coef(hdbic, type = "nonzero")[c("eta", "sigma2"),]), "ggmix_tau.txt", quote=FALSE, row.names = FALSE)
+write.csv(cbind(ggmixAIC_beta, ggmixBIC_beta, ggmixFPR5_beta), "ggmix_results.txt", quote=FALSE, row.names = FALSE)
+write.csv(t(coef(aic, type = "nonzero")[c("eta", "sigma2"),]), "ggmix_tau.txt", quote=FALSE, row.names = FALSE)
