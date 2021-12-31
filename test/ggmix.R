@@ -55,8 +55,8 @@ ggmixBIC_beta <- coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","AGE","S
 true_betas = read.csv("betas.txt")$beta
 ggmix_betas = fit_ggmix$beta[-c(1,2),]
 
-# False positive rate (FPR) at 5%
-v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, mean) < 0.05
+# False positive rate (FPR) at 0.005
+v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, mean) < 0.005
 ggmixFPR5_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
 
 #Save results

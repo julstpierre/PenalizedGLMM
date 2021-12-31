@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.3", "0", "0.1", "0.1", "10000", "0.003", "data/"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.3", "0", "0.1", "0.1", "10000", "0.003", "0.5", "data/"] : ARGS
 
 # Fraction of variance due to polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -28,7 +28,7 @@ p = parse(Int, ARGS_[5])
 c = parse(Float64, ARGS_[6])
 
 # Fraction of Caucasian/Non-Caucasian in the first group
-w = 0.5; w = [w, 1 - w] 
+w = [parse(Float64, ARGS_[7]), 1 - parse(Float64, ARGS_[7])] 
 
 # ------------------------------------------------------------------------
 # Load the covariate file
@@ -122,7 +122,7 @@ G = convert(Matrix{Float64}, @view(UKBB[:, snp_inds]), center = true, scale = tr
 
 # Save filtered plink file
 rowmask, colmask = trues(n), [col in snp_inds for col in 1:size(UKBB, 2)]
-SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[7] * "geno")
+SnpArrays.filter("UKBB", rowmask, colmask, des = ARGS_[8] * "geno")
 
 # ------------------------------------------------------------------------
 # Simulate phenotypes
@@ -152,8 +152,8 @@ final_dat = @chain grp_dat begin
 end
 
 # Write csv files
-CSV.write(ARGS_[7] * "covariate.txt", final_dat)
+CSV.write(ARGS_[8] * "covariate.txt", final_dat)
 
 df = SnpData("UKBB").snp_info[snp_inds, [1,2,4]]
 df.beta = beta
-CSV.write(ARGS_[7] * "betas.txt", df)
+CSV.write(ARGS_[8] * "betas.txt", df)

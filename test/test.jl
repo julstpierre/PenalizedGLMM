@@ -4,7 +4,7 @@ using PenalizedGLMM
 using GLM, GLMNet, SnpArrays, CSV, DataFrames, LinearAlgebra
 
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? [pwd() * "\\", "ALL", "2REs"] : ARGS
+const ARGS_ = isempty(ARGS) ? [pwd() * "\\", "1RE", "ALL"] : ARGS
 
 # Define directories where data is located
 const datadir = ARGS_[1]
@@ -16,10 +16,10 @@ const grmfile = "grm.txt.gz"
 # PenalizedGLMM
 #-------------------------------------------------------------------
 # Estimate covariate effects and variance components under the null
-if ARGS_[3] == "1RE"
+if ARGS_[2] == "1RE"
     # Model with one random effect 
     nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile)
-elseif ARGS_[3] == "2REs"
+elseif ARGS_[2] == "2REs"
     # Read covariate file
     covdf = CSV.read(covfile, DataFrame)
     n = nrow(covdf)
@@ -38,7 +38,7 @@ elseif ARGS_[3] == "2REs"
 end
 
 # Fit a penalized logistic mixed model
-modelfit = pglmm(nullmodel, plinkfile, verbose = true, GIC_crit = ARGS_[2])
+modelfit = pglmm(nullmodel, plinkfile, verbose = true, GIC_crit = ARGS_[3])
 
 # Genetic predictors effects at each λ   
 pglmm_β = modelfit.betas[3:end,:]
@@ -85,9 +85,9 @@ betas.pglmmBIC_beta = pglmmBIC_β
 betas.pglmmHDBIC_beta = pglmmHDBIC_β
 betas.glmnetcv_beta = glmnetcv_β
 
-# False positive rate (FPR) at 5% for pglmm and glmnet
-betas.pglmmFPR5_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.05)[2]]
-betas.glmnetFPR5_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.05)[2]]
+# False positive rate (FPR) at 0.005 for pglmm and glmnet
+betas.pglmmFPR5_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.005)[2]]
+betas.glmnetFPR5_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.005)[2]]
 
 # Estimated variance compoenent τ
 betas.tau = repeat(nullmodel.τ, nrow(betas))
