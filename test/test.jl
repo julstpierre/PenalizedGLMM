@@ -1,10 +1,10 @@
 # Load packages
 using Pkg; Pkg.activate("..")
 using PenalizedGLMM
-using GLM, GLMNet, SnpArrays, CSV, DataFrames
+using GLM, GLMNet, SnpArrays, CSV, DataFrames, LinearAlgebra
 
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["../data/", "ALL"] : ARGS
+const ARGS_ = isempty(ARGS) ? [pwd() * "\\", "ALL", "2REs"] : ARGS
 
 # Define directories where data is located
 const datadir = ARGS_[1]
@@ -12,11 +12,30 @@ const covfile = datadir * "covariate.txt"
 const plinkfile = datadir * "geno"
 const grmfile = "grm.txt.gz"
 
-#------------------------------
-# Model with one random effect 
-#------------------------------
+#-------------------------------------------------------------------
+# PenalizedGLMM
+#-------------------------------------------------------------------
 # Estimate covariate effects and variance components under the null
-nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile)
+if ARGS_[3] == "1RE"
+    # Model with one random effect 
+    nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile)
+elseif ARGS_[3] == "2REs"
+    # Read covariate file
+    covdf = CSV.read(covfile, DataFrame)
+    n = nrow(covdf)
+
+    # Environment relatedness matrix
+    K_D = Array{Float64}(undef, n, n)
+    for i in 1:n 
+        for j in i:n
+            K_D[i, j] = ifelse(covdf.Exposed[i] == covdf.Exposed[j], 1, 0)
+        end
+    end
+    LowerTriangular(K_D) .= transpose(UpperTriangular(K_D))
+
+    # Model with two random effects
+    nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile, M = push!([], K_D))
+end
 
 # Fit a penalized logistic mixed model
 modelfit = pglmm(nullmodel, plinkfile, verbose = true, GIC_crit = ARGS_[2])
