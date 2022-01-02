@@ -22,7 +22,7 @@ function pglmm(
     snpinds = nothing,
     geneticrowinds = nothing,
     irwls_tol::Float64 = 1e-7,
-    irwls_maxiter::Integer = 300,
+    irwls_maxiter::Integer = 400,
     K_::Union{Nothing, Integer} = nothing,
     verbose::Bool = false,
     normalize_weights::Bool = false,

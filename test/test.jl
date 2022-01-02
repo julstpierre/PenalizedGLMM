@@ -89,9 +89,6 @@ betas.glmnetcv_beta = glmnetcv_β
 betas.pglmmFPR5_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.005)[2]]
 betas.glmnetFPR5_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.005)[2]]
 
-# Estimated variance compoenent τ
-betas.tau = repeat(nullmodel.τ, nrow(betas))
-
 # Save results
 CSV.write(datadir * "results.txt", select(betas, 
                                           :true_beta, 
@@ -100,7 +97,8 @@ CSV.write(datadir * "results.txt", select(betas,
                                           :pglmmHDBIC_beta, 
                                           :pglmmFPR5_beta,
                                           :glmnetcv_beta, 
-                                          :glmnetFPR5_beta, 
-                                          :tau
+                                          :glmnetFPR5_beta
                                           )
 )
+
+CSV.write(datadir * "pglmm_tau.txt", DataFrame(tau = nullmodel.τ, h2 = nullmodel.τ / sum([nullmodel.τ' pi^2/3])))

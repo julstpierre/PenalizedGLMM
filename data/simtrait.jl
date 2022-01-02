@@ -106,16 +106,6 @@ grm_inds = sample(axes(UKBB, 2), 10000, replace = false)
 X = convert(Matrix{Float64}, @view(UKBB[:, grm_inds]), center = true, scale = true, impute = true)
 K = X * X' / length(grm_inds)
 
-# Ensure that K is positive definite
-function posdef(K::Matrix{Float64}, xi::Float64 = 1e-4, n::Int64 = size(K, 1))
-    while !isposdef(K)
-        K = K + xi * Diagonal(ones(n));
-        xi = 10*xi;
-    end
-    return(K = K)
-end
-K = posdef(K)
-
 # Sample p candidate SNPs randomly accross genome, convert to additive model, scale and impute
 snp_inds = sample(setdiff(axes(UKBB, 2), grm_inds), p, replace = false, ordered = true)
 G = convert(Matrix{Float64}, @view(UKBB[:, snp_inds]), center = true, scale = true, impute = true)
@@ -133,7 +123,16 @@ sigma2_g = h2_g / (1 - h2_g - h2_d) * sigma2_e
 sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
 # Simulate random effects
-b = c > 0 ? rand(MvNormal(0.5 * sigma2_g * K + sigma2_d * K_D)) : rand(MvNormal(sigma2_g * K + sigma2_d * K_D))
+# Ensure that Σtau*K is positive definite
+function posdef(K::Matrix{Float64}, xi::Float64 = 1e-4, n::Int64 = size(K, 1))
+    while !isposdef(K)
+        K = K + xi * Diagonal(ones(n));
+        xi = 10*xi;
+    end
+    return(K = K)
+end
+
+b = c > 0 ? rand(MvNormal(posdef(0.5 * sigma2_g * K + sigma2_d * K_D))) : rand(MvNormal(posdef(sigma2_g * K + sigma2_d * K_D)))
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
