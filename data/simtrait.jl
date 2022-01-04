@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.3", "0", "0.1", "0.1", "10000", "0.003", "0.5", "data/"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.3", "0.3", "0.1", "0.1", "10000", "0.003", "0.5", "data/"] : ARGS
 
 # Fraction of variance due to polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -86,28 +86,14 @@ grp_dat = @chain exp_dat begin
     @orderby(:FID)
 end
 
-# Environment relatedness matrix
-K_D = Array{Float64}(undef, n, n)
-for i in 1:n 
-    for j in i:n
-		K_D[i, j] = ifelse(grp_dat.Exposed[i] == grp_dat.Exposed[j], 1, 0)
-    end
-end
-K_D = Symmetric(K_D)
-
 #-------------------------------------------------------------------------
 # Load genotype Data
 #-------------------------------------------------------------------------
 # Read plink bim file
 UKBB = SnpArray("UKBB.bed")
 
-# Sample 10,000 SNPs with infinitesimal polygenic effects
-grm_inds = sample(axes(UKBB, 2), 10000, replace = false)
-X = convert(Matrix{Float64}, @view(UKBB[:, grm_inds]), center = true, scale = true, impute = true)
-K = X * X' / length(grm_inds)
-
 # Sample p candidate SNPs randomly accross genome, convert to additive model, scale and impute
-snp_inds = sample(setdiff(axes(UKBB, 2), grm_inds), p, replace = false, ordered = true)
+snp_inds = sample(axes(UKBB, 2), p, replace = false, ordered = true)
 G = convert(Matrix{Float64}, @view(UKBB[:, snp_inds]), center = true, scale = true, impute = true)
 
 # Save filtered plink file
@@ -122,29 +108,20 @@ sigma2_e = pi^2 / 3
 sigma2_g = h2_g / (1 - h2_g - h2_d) * sigma2_e
 sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
-# Simulate random effects
-# Ensure that Σtau*K is positive definite
-function posdef(K::Matrix{Float64}, xi::Float64 = 1e-4, n::Int64 = size(K, 1))
-    while !isposdef(K)
-        K = K + xi * Diagonal(ones(n));
-        xi = 10*xi;
-    end
-    return(K = K)
-end
-
-b = c > 0 ? rand(MvNormal(posdef(0.5 * sigma2_g * K + sigma2_d * K_D))) : rand(MvNormal(posdef(sigma2_g * K + sigma2_d * K_D)))
-
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
 s = sample(1:p, Integer(round(p*c)), replace = false)
-W[s] .= sigma2_g/(2 * length(s))
+W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
+
+# Set fixed effect for dichotomous environmental effect
+gamma = sqrt(sigma2_d / (w[1] * (1- w[1])))
 
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
 expit(x) = exp(x) / (1 + exp(x))
 final_dat = @chain grp_dat begin
-	@transform!(:logit_pi = logit(pi0) .+ (logit(pi1) - logit(pi0)) * :CAUCASIAN - log(1.3) * :SEX + log(1.05) * ((:AGE .- 56) / 10) + G * beta + b)
+	@transform!(:logit_pi = logit(pi0) .+ (logit(pi1) - logit(pi0)) * :CAUCASIAN - log(1.3) * :SEX + log(1.05) * ((:AGE .- 56) / 10) + G * beta + :Exposed * gamma)
     @transform!(:pi = expit.(:logit_pi))
     @transform(:y = rand.([Binomial(1, :pi[i]) for i in 1:n]))
     select!(Not([:pi, :logit_pi, :ETHNICITY]))

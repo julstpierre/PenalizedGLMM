@@ -4,7 +4,7 @@ using PenalizedGLMM
 using GLM, GLMNet, SnpArrays, CSV, DataFrames, LinearAlgebra
 
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? [pwd() * "\\", "1RE", "ALL"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["", "1RE", "ALL"] : ARGS
 
 # Define directories where data is located
 const datadir = ARGS_[1]
