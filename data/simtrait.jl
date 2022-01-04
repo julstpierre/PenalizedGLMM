@@ -93,7 +93,7 @@ for i in 1:n
 		K_D[i, j] = ifelse(grp_dat.Exposed[i] == grp_dat.Exposed[j], 1, 0)
     end
 end
-LowerTriangular(K_D) .= transpose(UpperTriangular(K_D))
+K_D = Symmetric(K_D)
 
 #-------------------------------------------------------------------------
 # Load genotype Data

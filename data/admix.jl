@@ -15,7 +15,6 @@ Qt = CSV.read("UKBB.4.Q", DataFrame, header = false) |> Matrix |> transpose
 UKBB = SnpArray("UKBB.bed")
 GRM = SnpArrays.grm_admixture(UKBB, Pt, Qt) |> x -> 2*x
 
-
 # Save GRM in compressed file
 open(GzipCompressorStream, "grm.txt.gz", "w") do stream
     CSV.write(stream, DataFrame(GRM, :auto))

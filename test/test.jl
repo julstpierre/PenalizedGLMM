@@ -15,11 +15,21 @@ const grmfile = "grm.txt.gz"
 #-------------------------------------------------------------------
 # PenalizedGLMM
 #-------------------------------------------------------------------
-# Estimate covariate effects and variance components under the null
-if ARGS_[2] == "1RE"
-    # Model with one random effect 
-    nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile)
-elseif ARGS_[2] == "2REs"
+# Fit null model with one random effect
+nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile)
+
+# Fit a penalized logistic mixed model
+modelfit = pglmm(nullmodel, plinkfile, verbose = true, GIC_crit = ARGS_[3])
+
+# Genetic predictors effects at each λ   
+pglmm_β = modelfit.betas[3:end,:]
+
+# Find λ that gives minimum GIC
+pglmmAIC_β = pglmm_β[:, argmin(modelfit.GIC["AIC",:])]
+pglmmBIC_β = pglmm_β[:, argmin(modelfit.GIC["BIC",:])]
+
+# Model with two random effects
+if ARGS_[2] == "2REs"
     # Read covariate file
     covdf = CSV.read(covfile, DataFrame)
     n = nrow(covdf)
@@ -31,22 +41,20 @@ elseif ARGS_[2] == "2REs"
             K_D[i, j] = ifelse(covdf.Exposed[i] == covdf.Exposed[j], 1, 0)
         end
     end
-    LowerTriangular(K_D) .= transpose(UpperTriangular(K_D))
+    K_D = Symmetric(K_D)
 
     # Model with two random effects
-    nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile, M = push!([], K_D))
+    nullmodel2 = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile, M = push!([], K_D))
+    modelfit2 = pglmm(nullmodel2, plinkfile, verbose = true, GIC_crit = ARGS_[3])
+
+    # Genetic predictors effects at each λ   
+    pglmm2_β = modelfit2.betas[3:end,:]
+
+    # Find λ that gives minimum GIC
+    pglmm2AIC_β = pglmm2_β[:, argmin(modelfit2.GIC["AIC",:])]
+    pglmm2BIC_β = pglmm2_β[:, argmin(modelfit2.GIC["BIC",:])]
+
 end
-
-# Fit a penalized logistic mixed model
-modelfit = pglmm(nullmodel, plinkfile, verbose = true, GIC_crit = ARGS_[3])
-
-# Genetic predictors effects at each λ   
-pglmm_β = modelfit.betas[3:end,:]
-
-# Find λ that gives minimum GIC
-pglmmAIC_β = pglmm_β[:, argmin(modelfit.GIC["AIC",:])]
-pglmmBIC_β = pglmm_β[:, argmin(modelfit.GIC["BIC",:])]
-pglmmHDBIC_β = pglmm_β[:, argmin(modelfit.GIC["HDBIC",:])]
 
 #----------------------------
 # Compare with glmnet
@@ -82,23 +90,47 @@ rename!(betas, :beta => :true_beta)
 # Save betas for pglmm with AIC, BIC and HDBIC, and glmnet_cv
 betas.pglmmAIC_beta = pglmmAIC_β
 betas.pglmmBIC_beta = pglmmBIC_β
-betas.pglmmHDBIC_beta = pglmmHDBIC_β
 betas.glmnetcv_beta = glmnetcv_β
+if ARGS_[2] == "2REs"
+    betas.pglmm2AIC_beta = pglmm2AIC_β
+    betas.pglmm2BIC_beta = pglmm2BIC_β
+end
 
-# False positive rate (FPR) at 0.005 for pglmm and glmnet
-betas.pglmmFPR5_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.005)[2]]
-betas.glmnetFPR5_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.005)[2]]
+# False positive rate (FPR) at 1% for pglmm and glmnet
+betas.pglmmFPR_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]]
+betas.glmnetFPR_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]]
+if ARGS_[2] == "2REs"
+    betas.pglmm2FPR_beta = pglmm2_β[:, findlast(sum((pglmm2_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]]
+end
 
 # Save results
-CSV.write(datadir * "results.txt", select(betas, 
-                                          :true_beta, 
-                                          :pglmmAIC_beta,
-                                          :pglmmBIC_beta,
-                                          :pglmmHDBIC_beta, 
-                                          :pglmmFPR5_beta,
-                                          :glmnetcv_beta, 
-                                          :glmnetFPR5_beta
-                                          )
-)
+if ARGS_[2] == "1RE"
+    CSV.write(datadir * "results.txt", select(betas, 
+                                            :true_beta, 
+                                            :pglmmAIC_beta,
+                                            :pglmmBIC_beta, 
+                                            :pglmmFPR_beta,
+                                            :glmnetcv_beta, 
+                                            :glmnetFPR_beta
+                                            )
+    )
 
-CSV.write(datadir * "pglmm_tau.txt", DataFrame(tau = nullmodel.τ, h2 = nullmodel.τ / sum([nullmodel.τ' pi^2/3])))
+    CSV.write(datadir * "pglmm_tau.txt", DataFrame(tau = nullmodel.τ, h2 = nullmodel.τ / sum([nullmodel.τ' pi^2/3])))
+
+elseif ARGS_[2] == "2REs"
+    CSV.write(datadir * "results.txt", select(betas, 
+                                            :true_beta, 
+                                            :pglmmAIC_beta,
+                                            :pglmmBIC_beta, 
+                                            :pglmmFPR_beta,
+                                            :pglmm2AIC_beta,
+                                            :pglmm2BIC_beta, 
+                                            :pglmm2FPR_beta,
+                                            :glmnetcv_beta, 
+                                            :glmnetFPR_beta
+                                            )
+    )
+
+    CSV.write(datadir * "pglmm_tau.txt", DataFrame(tau = nullmodel2.τ, h2 = nullmodel2.τ / sum([nullmodel2.τ' pi^2/3])))
+end
+

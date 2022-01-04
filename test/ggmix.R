@@ -47,7 +47,7 @@ fit_ggmix <- ggmix(x = as.matrix(cbind(pheno.cov[,c("AGE","SEX")],G)),
 aic <- ggmix::gic(fit_ggmix, an = 2)
 bic <- ggmix::gic(fit_ggmix, an = log(n))
 
-# Save betas for ggmix with HDBIC criteria
+# Save betas for ggmix with different GIC criteria
 ggmixAIC_beta <- coef(aic)[setdiff(rownames(coef(aic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
 ggmixBIC_beta <- coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
 
@@ -55,10 +55,10 @@ ggmixBIC_beta <- coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","AGE","S
 true_betas = read.csv("betas.txt")$beta
 ggmix_betas = fit_ggmix$beta[-c(1,2),]
 
-# False positive rate (FPR) at 0.005
-v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, mean) < 0.005
-ggmixFPR5_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
+# False positive rate (FPR) at 1%
+v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) < 0.01
+ggmixFPR_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
 
 #Save results
-write.csv(cbind(ggmixAIC_beta, ggmixBIC_beta, ggmixFPR5_beta), "ggmix_results.txt", quote=FALSE, row.names = FALSE)
+write.csv(cbind(ggmixAIC_beta, ggmixBIC_beta, ggmixFPR_beta), "ggmix_results.txt", quote=FALSE, row.names = FALSE)
 write.csv(t(coef(aic, type = "nonzero")[c("eta", "sigma2"),]), "ggmix_tau.txt", quote=FALSE, row.names = FALSE)
