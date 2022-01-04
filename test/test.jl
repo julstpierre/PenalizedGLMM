@@ -10,7 +10,7 @@ const ARGS_ = isempty(ARGS) ? [pwd() * "\\", "1RE", "ALL"] : ARGS
 const datadir = ARGS_[1]
 const covfile = datadir * "covariate.txt"
 const plinkfile = datadir * "geno"
-const grmfile = "grm.txt.gz"
+const grmfile = datadir * "grm.txt.gz"
 
 #-------------------------------------------------------------------
 # PenalizedGLMM

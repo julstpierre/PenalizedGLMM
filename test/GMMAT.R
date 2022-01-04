@@ -12,7 +12,7 @@ pheno.cov <- read.table("covariate.txt", sep=",", header = T) %>%
 			 mutate(ID=paste(FID,":",IID,sep=""))
 
 #Read GRM matrix
-GRM <- as.matrix(fread("~/projects/def-bhatnaga/gf591137/PenalizedGLMM/data/grm.txt.gz"))
+GRM <- as.matrix(fread("grm.txt.gz"))
 colnames(GRM) <- pheno.cov$ID
 rownames(GRM) <- pheno.cov$ID
 
