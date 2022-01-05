@@ -27,7 +27,8 @@ function pglmm(
     verbose::Bool = false,
     normalize_weights::Bool = false,
     criterion = :coef,
-    GIC_crit::String = "HDBIC",
+    GIC_crit::String = "AIC",
+    earlystop::Bool = true,
     kwargs...
     )
 
@@ -66,7 +67,6 @@ function pglmm(
         Ytilde = nullmodel.η + 4 * (y - μ)
         nulldev = -2 * sum(y * log(ybar / (1 - ybar)) .+ log(1 - ybar))
     elseif nullmodel.family == Normal()
-        μ = nullmodel.η
         Ytilde = y
         nulldev = var(y) * (n - 1) / nullmodel.φ
     end
@@ -103,14 +103,17 @@ function pglmm(
     end
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, a_n)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, a_n, earlystop)
 
     # Create a Named Array for GIC
     GIC = NamedArray(path.GIC)
     setnames!(GIC, convert(Vector{String}, GIC_crit), 1)
 
+    # Calculate fitted means
+    fitted_means = fitted(nullmodel.family, path.fitted_values, nullmodel, UD_inv)
+
     # Return lasso path
-    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, GIC)
+    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, GIC, fitted_means)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -138,13 +141,18 @@ function pglmm_fit(
     irwls_tol::Float64,
     irwls_maxiter::Int64,
     criterion,
-    a_n::Vector{Float64}  
+    a_n::Vector{Float64},
+    earlystop::Bool  
 )
     # Initialize array to store output for each λ
     betas = zeros(size(Xstar, 2), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
     GIC = zeros(Float64, length(a_n), K) 
+    fitted_values = zeros(size(Xstar, 1), K)
+
+    # Initialize μ outside of loop
+    μ = zeros(Float64, size(Xstar, 1))
 
     # Loop through sequence of λ
     i = 0
@@ -210,12 +218,13 @@ function pglmm_fit(
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
         GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
+        fitted_values[:,i] = μ
 
         # Test whether we should continue
-        ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0))|| pct_dev[i] > MAX_DEV_FRAC) && break
+        earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0)) || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i], fitted_values = fitted_values[:,1:i])
 end
 
 function pglmm_fit(
@@ -237,13 +246,15 @@ function pglmm_fit(
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
-    a_n::Vector{Float64} 
+    a_n::Vector{Float64},
+    earlystop::Bool  
 )
     # Initialize array to store output for each λ
     betas = zeros(size(Xstar, 2), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    GIC = zeros(Float64, length(a_n), K) 
+    GIC = zeros(Float64, length(a_n), K)
+    fitted_values = zeros(size(Xstar, 1), K) 
 
     # Loop through sequence of λ
     i = 0
@@ -271,12 +282,13 @@ function pglmm_fit(
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
         GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
+        fitted_values[:,i] = r
 
         # Test whether we should continue
-        (last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF || pct_dev[i] > MAX_DEV_FRAC) && break
+        earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0))|| pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i], fitted_values = fitted_values[:,1:i])
 end
 
 # Function to perform coordinate descent with a lasso penalty
@@ -399,6 +411,7 @@ struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     npasses::Int                     # actual number of passes over the
                                      # data for all lamda values
     GIC
+    fitted_means::Matrix{Float64}    # fitted means
 end
 
 function show(io::IO, g::pglmmPath)
@@ -489,4 +502,24 @@ function NormalDeviance(
     w::Vector{Float64}
 )
     dot(w, r.^2)
+end
+
+# Function to calculate fitted values
+function fitted(
+    ::Binomial,
+    fitted_values::Matrix{Float64},
+    nullmodel,
+    UD_inv::Matrix{Float64}
+)
+    fitted_values
+end
+
+function fitted(
+    ::Normal,
+    fitted_values::Matrix{Float64},
+    nullmodel,
+    UD_inv::Matrix{Float64}
+)
+    r = fitted_values
+    nullmodel.y - nullmodel.φ * UD_inv * r
 end

@@ -96,14 +96,28 @@ if ARGS_[2] == "2REs"
     betas.pglmm2BIC_beta = pglmm2BIC_β
 end
 
+#-----------------------------------------------------
 # False positive rate (FPR) at 1% for pglmm and glmnet
-betas.pglmmFPR_beta = pglmm_β[:, findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]]
-betas.glmnetFPR_beta = glmnet_β[:, findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]]
+#-----------------------------------------------------
+# pglmm
+pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
+betas.pglmmFPR_beta = pglmm_β[:, pglmmFPR_ind]
+betas.pglmmFPR_yhat = modelfit.fitted_means[:, pglmmFPR_ind]
+
 if ARGS_[2] == "2REs"
-    betas.pglmm2FPR_beta = pglmm2_β[:, findlast(sum((pglmm2_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]]
+    pglmm2FPR_ind = findlast(sum((pglmm2_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
+    betas.pglmm2FPR_beta = pglmm2_β[:, pglmm2FPR_ind]
+    betas.pglmm2FPR_yhat = modelfit2.fitted_means[:, pglmm2FPR_ind]
 end
 
+# glmnet
+glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
+betas.glmnetFPR_beta = glmnet_β[:, glmnetFPR_ind]
+betas.glmnetFPR_yhat = GLMNet.predict(fit_glmnet, X, outtype = :prob)[:,glmnetFPR_ind]
+
+#-----------------------
 # Save results
+#-----------------------
 if ARGS_[2] == "1RE"
     CSV.write(datadir * "results.txt", select(betas, 
                                             :true_beta, 
@@ -111,7 +125,9 @@ if ARGS_[2] == "1RE"
                                             :pglmmBIC_beta, 
                                             :pglmmFPR_beta,
                                             :glmnetcv_beta, 
-                                            :glmnetFPR_beta
+                                            :glmnetFPR_beta,
+                                            :pglmmFPR_yhat,
+                                            :glmnetFPR_yhat
                                             )
     )
 
@@ -127,7 +143,10 @@ elseif ARGS_[2] == "2REs"
                                             :pglmm2BIC_beta, 
                                             :pglmm2FPR_beta,
                                             :glmnetcv_beta, 
-                                            :glmnetFPR_beta
+                                            :glmnetFPR_beta,
+                                            :pglmmFPR_yhat,
+                                            :pglmm2FPR_yhat,
+                                            :glmnetFPR_yhat
                                             )
     )
 
