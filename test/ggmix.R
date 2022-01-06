@@ -1,5 +1,9 @@
 rm(list=ls())
 
+#Command-line argument
+args<-commandArgs(TRUE)
+sim <- args[1]
+
 #======================================================================
 # Load packages
 #======================================================================
@@ -36,12 +40,18 @@ rownames(GRM) <- pheno.cov$ID
 #=======================================================================
 # GGMIX
 #=======================================================================
-fit_ggmix <- ggmix(x = as.matrix(cbind(pheno.cov[,c("AGE","SEX")],G)),
-					 y = as.matrix(pheno.cov$y),
-					 standardize = T,		
-					 kinship=GRM,
-					 penalty.factor = c(rep(0,2),rep(1,p))
-				  )
+if(sim == "sim1"){
+  X <- pheno.cov[,c("AGE","SEX")]
+} else if(sim == "sim2"){
+  X <- pheno.cov[,c("AGE","SEX", paste0("x",1:19))]
+}
+
+fit_ggmix <- ggmix(x = as.matrix(X, G),
+                   y = as.matrix(pheno.cov$y),
+                   standardize = T,		
+                   kinship=GRM,
+                   penalty.factor = c(rep(0,2),rep(1,p))
+)
 
 # Find lambda that gives minimum GIC				  
 aic <- ggmix::gic(fit_ggmix, an = 2)
@@ -58,9 +68,9 @@ ggmix_betas = fit_ggmix$beta[-c(1,2),]
 # False positive rate (FPR) at 1%
 v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) < 0.01
 ggmixFPR_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
-ggmixFPR_yhat <- predict(fit_ggmix, as.matrix(cbind(pheno.cov[,c("AGE","SEX")],G)))[,tapply(seq_along(v), v, max)["TRUE"]]
+ggmixFPR_yhat <- predict(fit_ggmix, as.matrix(cbind(X, G)))[,tapply(seq_along(v), v, max)["TRUE"]]
 
 #Save results
 write.csv(cbind(ggmixAIC_beta, ggmixBIC_beta, ggmixFPR_beta), "ggmix_results.txt", quote=FALSE, row.names = FALSE)
-write.csv(cbind(ggmixFPR_yhat), "ggmix_fitted_values.txt", quote=FALSE, row.names = FALSE)
+write.csv(cbind(ggmixFPR = ggmixFPR_yhat), "ggmix_fitted_values.txt", quote=FALSE, row.names = FALSE)
 write.csv(t(coef(aic, type = "nonzero")[c("eta", "sigma2"),]), "ggmix_tau.txt", quote=FALSE, row.names = FALSE)
