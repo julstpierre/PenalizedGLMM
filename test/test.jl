@@ -99,21 +99,24 @@ end
 #-----------------------------------------------------
 # False positive rate (FPR) at 1% for pglmm and glmnet
 #-----------------------------------------------------
+# Create DataFrame for fitted values
+yhat = DataFrame()
+
 # pglmm
 pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
 betas.pglmmFPR_beta = pglmm_β[:, pglmmFPR_ind]
-betas.pglmmFPR_yhat = modelfit.fitted_means[:, pglmmFPR_ind]
+yhat.pglmmFPR = modelfit.fitted_means[:, pglmmFPR_ind]
 
 if ARGS_[2] == "2REs"
     pglmm2FPR_ind = findlast(sum((pglmm2_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
     betas.pglmm2FPR_beta = pglmm2_β[:, pglmm2FPR_ind]
-    betas.pglmm2FPR_yhat = modelfit2.fitted_means[:, pglmm2FPR_ind]
+    yhat.pglmm2FPR = modelfit2.fitted_means[:, pglmm2FPR_ind]
 end
 
 # glmnet
 glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
 betas.glmnetFPR_beta = glmnet_β[:, glmnetFPR_ind]
-betas.glmnetFPR_yhat = GLMNet.predict(fit_glmnet, X, outtype = :prob)[:,glmnetFPR_ind]
+yhat.glmnetFPR = GLMNet.predict(fit_glmnet, X, outtype = :prob)[:,glmnetFPR_ind]
 
 #-----------------------
 # Save results
@@ -125,12 +128,10 @@ if ARGS_[2] == "1RE"
                                             :pglmmBIC_beta, 
                                             :pglmmFPR_beta,
                                             :glmnetcv_beta, 
-                                            :glmnetFPR_beta,
-                                            :pglmmFPR_yhat,
-                                            :glmnetFPR_yhat
+                                            :glmnetFPR_beta
                                             )
     )
-
+    CSV.write(datadir * "fitted_values.txt", select(yhat, :pglmmFPR, :glmnetFPR))
     CSV.write(datadir * "pglmm_tau.txt", DataFrame(tau = nullmodel.τ, h2 = nullmodel.τ / sum([nullmodel.τ' pi^2/3])))
 
 elseif ARGS_[2] == "2REs"
@@ -143,13 +144,10 @@ elseif ARGS_[2] == "2REs"
                                             :pglmm2BIC_beta, 
                                             :pglmm2FPR_beta,
                                             :glmnetcv_beta, 
-                                            :glmnetFPR_beta,
-                                            :pglmmFPR_yhat,
-                                            :pglmm2FPR_yhat,
-                                            :glmnetFPR_yhat
+                                            :glmnetFPR_beta
                                             )
     )
-
+    CSV.write(datadir * "fitted_values.txt", select(yhat, :pglmmFPR, :pglmm2FPR, :glmnetFPR))
     CSV.write(datadir * "pglmm_tau.txt", DataFrame(tau = nullmodel2.τ, h2 = nullmodel2.τ / sum([nullmodel2.τ' pi^2/3])))
 end
 
