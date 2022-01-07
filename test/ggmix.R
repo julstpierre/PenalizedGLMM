@@ -3,6 +3,7 @@ rm(list=ls())
 #Command-line argument
 args<-commandArgs(TRUE)
 sim <- args[1]
+m <- as.numeric(args[2])
 
 #======================================================================
 # Load packages
@@ -43,14 +44,14 @@ rownames(GRM) <- pheno.cov$ID
 if(sim == "sim1"){
   X <- pheno.cov[,c("AGE","SEX")]
 } else if(sim == "sim2"){
-  X <- pheno.cov[,c("AGE","SEX", paste0("x",1:19))]
+  X <- pheno.cov[,c("AGE","SEX", paste0("x",1:(m-1)))]
 }
 
-fit_ggmix <- ggmix(x = as.matrix(X, G),
+fit_ggmix <- ggmix(x = as.matrix(cbind(X, G)),
                    y = as.matrix(pheno.cov$y),
                    standardize = T,		
                    kinship=GRM,
-                   penalty.factor = c(rep(0,2),rep(1,p))
+                   penalty.factor = c(rep(0,ncol(X)),rep(1,p))
 )
 
 # Find lambda that gives minimum GIC				  
@@ -58,12 +59,12 @@ aic <- ggmix::gic(fit_ggmix, an = 2)
 bic <- ggmix::gic(fit_ggmix, an = log(n))
 
 # Save betas for ggmix with different GIC criteria
-ggmixAIC_beta <- coef(aic)[setdiff(rownames(coef(aic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
-ggmixBIC_beta <- coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
+ggmixAIC_beta <- coef(aic)[setdiff(rownames(coef(aic)), c("(Intercept)","AGE","SEX",paste0("x",1:(m-1)),"eta","sigma2")),]
+ggmixBIC_beta <- coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","AGE","SEX",paste0("x",1:(m-1)),"eta","sigma2")),]
 
 # Read file with real values
 true_betas = read.csv("betas.txt")$beta
-ggmix_betas = fit_ggmix$beta[-c(1,2),]
+ggmix_betas = fit_ggmix$beta[-(1:ncol(X)),]
 
 # False positive rate (FPR) at 1%
 v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) < 0.01

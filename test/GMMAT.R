@@ -34,7 +34,7 @@ if (method == "1RE"){
   K_D = matrix(nrow=n, ncol=n)
   for (i in 1:n){ 
     for (j in i:n){
-      K_D[i, j] = ifelse(pheno.cov$Exposed[i] == pheno.cov$Exposed[j], 1, 0)
+      K_D[i, j] = ifelse(pheno.cov$grp[i] == pheno.cov$grp[j], 1, 0)
     }
   }
   K_D[lower.tri(K_D)] <- t(K_D)[lower.tri(K_D)]

@@ -16,13 +16,13 @@ const grmfile = datadir * "grm.txt.gz"
 # PenalizedGLMM
 #-------------------------------------------------------------------
 # Fit null model with one random effect
-nullmodel = pglmm_null(@formula(y ~ SEX + AGE + x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9 + x10 + x11 + x12 + x13 + x14 + x15 + x16 + x17 + x18 + x19), covfile, grmfile)
+nullmodel = pglmm_null(@formula(y ~ SEX + AGE + x1 + x2 + x3 + x4 + x5 + x6 + x7 + x8 + x9), covfile, grmfile)
 
 # Fit a penalized logistic mixed model
 modelfit = pglmm(nullmodel, plinkfile, verbose = true, GIC_crit = ARGS_[3])
 
 # Genetic predictors effects at each λ   
-pglmm_β = modelfit.betas[22:end,:]
+pglmm_β = modelfit.betas[12:end,:]
 
 # Find λ that gives minimum GIC
 pglmmAIC_β = pglmm_β[:, argmin(modelfit.GIC["AIC",:])]
@@ -66,8 +66,7 @@ p = size(G, 2)
 
 # Combine non-genetic and genetic covariates, and convert y to a two-column matrix
 covdf = CSV.read(covfile, DataFrame)
-varlist = ["AGE", "SEX", "PCA1","PCA2","PCA3","PCA4","PCA5","PCA6","PCA7","PCA8","PCA9","PCA10",
-           "x1","x2","x3","x4","x5","x6","x7","x8","x9","x10","x11","x12","x13","x14","x15","x16","x17","x18","x19"]
+varlist = ["AGE", "SEX", "PCA1","PCA2","PCA3","PCA4","PCA5","PCA6","PCA7","PCA8","PCA9","PCA10","x1","x2","x3","x4","x5","x6","x7","x8","x9"]
 X = [Array(covdf[:, varlist]) G]
 
 # y must be a matrix with one column per class
