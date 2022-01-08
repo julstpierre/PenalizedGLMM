@@ -185,22 +185,16 @@ function pglmm_fit(
             # If loss function did not decrease, take a half step to ensure convergence
             if loss > prev_loss + length(μ)*eps(prev_loss)
                 verbose && println("step-halving because loss=$loss > $prev_loss + $(length(μ)*eps(prev_loss)) = length(μ)*eps(prev_loss)")
-            end 
-            
-            #=   
-                s = 1.0
+                #= s = 1.0
                 d = β - β_last
-                ∇f = -Xstar[:,d.nzind]' * (w .* (Ystar0 - Xstar[:,β_last.nzind] * β_last.nzval))
-                Δ = ∇f' * d.nzval + λ * (sum(p_f[β.nzind] .* abs.(β.nzval)) - sum(p_f[β_last.nzind] .* abs.(β_last.nzval)))    
-                while loss > prev_loss + δ * s * Δ
+                while loss > prev_loss
                     s /= 2
                     β = β_last + s * d
-                    Ytilde, μ = wrkresp(y, r, Ytilde, UD_inv) 
-                    dev = model_dev(y, r, w, μ)
+                    μ = updateμ(r, Ytilde, UD_inv) 
+                    dev = LogisticDeviance(y, r, w, μ)
                     loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
-                end
-            end
-            =#
+                end =#
+            end 
 
             # Update working response and residuals
             Ytilde, r = wrkresp(y, r, μ, Ytilde, Ut)
