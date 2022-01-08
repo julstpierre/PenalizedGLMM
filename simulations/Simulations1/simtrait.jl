@@ -50,6 +50,7 @@ end
 # Combine into a DataFrame
 dat = @chain CSV.read("covars_full.txt", DataFrame) begin
     @select!(:FID, :IID, :SEX, :AGE, :PCA1, :PCA2, :PCA3, :PCA4, :PCA5, :PCA6, :PCA7, :PCA8, :PCA9, :PCA10)
+    @transform!(:SEX = :SEX .== "1")
 	rightjoin(samples, on = [:FID, :IID])
 	leftjoin(vcat(caucasians, non_caucasians), on = [:FID, :IID])
 end	    	  
@@ -75,12 +76,16 @@ if ARGS_[6] != "ALL"
     GRM = 2 * grm(UKBB, cinds = grm_inds)
 
     # Make sure GRM is posdef
-    xi = 1e-4
-    while !isposdef(GRM)
-        GRM = GRM + xi * Diagonal(ones(n))
-        xi = 10 * xi
+    function posdef(K, n = size(GRM, 1))
+        xi = 1e-4
+        while !isposdef(K)
+            K = K + xi * Diagonal(ones(n))
+            xi = 10 * xi
+        end
+        return(K)
     end
-
+    GRM = posdef(GRM)
+    
     # Save GRM in compressed file
     open(GzipCompressorStream, ARGS_[7] * "grm.txt.gz", "w") do stream
         CSV.write(stream, DataFrame(GRM, :auto))
@@ -91,7 +96,7 @@ end
 # Simulate phenotypes
 # ------------------------------------------------------------------------
 # Variance components
-sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX .== "1") + log(1.05)^2 * var((dat.AGE .- 56) / 10)
+sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var((dat.AGE .- 56) / 10)
 sigma2_g = ARGS_[6] != "ALL" ? 1/2 * h2_g / (1 - h2_g - h2_d) * sigma2_e : h2_g / (1 - h2_g - h2_d) * sigma2_e
 sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
