@@ -4,7 +4,7 @@ using PenalizedGLMM
 using GLM, GLMNet, SnpArrays, CSV, DataFrames, LinearAlgebra
 
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["", "1RE", "ALL"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["", "1RE", "ALL", "0.05"] : ARGS
 
 # Define directories where data is located
 const datadir = ARGS_[1]
@@ -77,23 +77,24 @@ betas.cv_glmnet = cv_glmnet_β
 betas.cv_glmnetPC = cv_glmnetPC_β
 
 #-----------------------------------------------------
-# False positive rate (FPR) at 1% for pglmm and glmnet
+# False positive rate (FPR) for pglmm and glmnet
 #-----------------------------------------------------
 # Create DataFrame for fitted values
 yhat = DataFrame()
+fpr = parse(Float64, ARGS_[4])
 
 # pglmm
-pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
+pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< fpr)[2]
 betas.pglmmFPR = pglmm_β[:, pglmmFPR_ind]
 yhat.pglmmFPR = modelfit.fitted_means[:, pglmmFPR_ind]
 
 # glmnet with no PCs
-glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
+glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< fpr)[2]
 betas.glmnetFPR = glmnet_β[:, glmnetFPR_ind]
 yhat.glmnetFPR = GLMNet.predict(fit_glmnet, X, outtype = :prob)[:,glmnetFPR_ind]
 
 # glmnet with 10 PCs
-glmnetPCFPR_ind = findlast(sum((glmnetPC_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< 0.01)[2]
+glmnetPCFPR_ind = findlast(sum((glmnetPC_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< fpr)[2]
 betas.glmnetPCFPR = glmnetPC_β[:, glmnetPCFPR_ind]
 yhat.glmnetPCFPR = GLMNet.predict(fit_glmnetPC, XwithPC, outtype = :prob)[:,glmnetPCFPR_ind]
 

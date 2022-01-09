@@ -50,9 +50,9 @@ end
 # Combine into a DataFrame
 dat = @chain CSV.read("covars_full.txt", DataFrame) begin
     @select!(:FID, :IID, :SEX, :AGE, :PCA1, :PCA2, :PCA3, :PCA4, :PCA5, :PCA6, :PCA7, :PCA8, :PCA9, :PCA10)
-    @transform!(:SEX = :SEX .== "1")
 	rightjoin(samples, on = [:FID, :IID])
 	leftjoin(vcat(caucasians, non_caucasians), on = [:FID, :IID])
+    @transform!(:SEX = parse.(Int, :SEX))
 end	    	  
 n = size(dat, 1)
 
@@ -76,8 +76,7 @@ if ARGS_[6] != "ALL"
     GRM = 2 * grm(UKBB, cinds = grm_inds)
 
     # Make sure GRM is posdef
-    function posdef(K, n = size(GRM, 1))
-        xi = 1e-4
+    function posdef(K, n = size(K, 1), xi = 1e-4)
         while !isposdef(K)
             K = K + xi * Diagonal(ones(n))
             xi = 10 * xi

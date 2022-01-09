@@ -1,5 +1,7 @@
 rm(list=ls())
 
+arg <- commandArgs(trailingOnly = TRUE)
+fpr <- as.numeric(arg[1])
 #======================================================================
 # Load packages
 #======================================================================
@@ -58,11 +60,11 @@ true_betas = read.csv("betas.txt")$beta
 ggmix_betas = fit_ggmix$beta[-(1:ncol(X)),]
 
 # False positive rate (FPR) at 1%
-v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) < 0.01
+v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) < fpr
 ggmixFPR_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
 ggmixFPR_yhat <- predict(fit_ggmix, as.matrix(cbind(X, G)))[,tapply(seq_along(v), v, max)["TRUE"]]
 
 #Save results
-write.csv(cbind(ggmixAIC_beta, ggmixBIC_beta, ggmixFPR_beta), "ggmix_results.txt", quote=FALSE, row.names = FALSE)
+write.csv(cbind(ggmixAIC = ggmixAIC_beta, ggmixBIC = ggmixBIC_beta, ggmixFPR = ggmixFPR_beta), "ggmix_results.txt", quote=FALSE, row.names = FALSE)
 write.csv(cbind(ggmixFPR = ggmixFPR_yhat), "ggmix_fitted_values.txt", quote=FALSE, row.names = FALSE)
 write.csv(t(coef(aic, type = "nonzero")[c("eta", "sigma2"),]), "ggmix_tau.txt", quote=FALSE, row.names = FALSE)
