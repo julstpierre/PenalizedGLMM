@@ -1,9 +1,2 @@
-data/UKBB.bed
-data/UKBB.bim
-data/UKBB.fam
-data/UKBB.4.P
-data/UKBB.4.Q
-data/include_Caucasian.txt
-data/include_notCaucasian.txt
-data/covars_full.txt
-data/grm.txt.gz
+data/UKBB/
+data/1000G/
