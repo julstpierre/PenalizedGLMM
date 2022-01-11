@@ -55,7 +55,7 @@ G = convert(Matrix{Float64}, @view(_1000G[:, snp_inds]), center = true, scale = 
 
 # Save filtered plink file
 rowmask, colmask = trues(n), [col in snp_inds for col in 1:size(_1000G, 2)]
-SnpArrays.filter("1000G\\1000G", rowmask, colmask, des = ARGS_[7] * "geno")
+SnpArrays.filter("1000G/1000G", rowmask, colmask, des = ARGS_[7] * "geno")
 
 if ARGS_[6] == "ALL"
     # Causal SNPs are included in the GRM
@@ -128,7 +128,7 @@ print(combine(groupby(final_dat, :POP), :y => mean))
 CSV.write(ARGS_[7] * "covariate.txt", final_dat)
 
 # Associate position with simulated effect for each SNP
-df = SnpData("1000G\\1000G").snp_info[snp_inds, [1,4]]
+df = SnpData("1000G/1000G").snp_info[snp_inds, [1,4]]
 df.beta = beta
 
 # Compute MAF for each SNP and in each Population

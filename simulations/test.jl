@@ -4,7 +4,7 @@ using PenalizedGLMM
 using GLM, GLMNet, SnpArrays, CSV, DataFrames, LinearAlgebra
 
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["", "1RE", "ALL", "0.05"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["", "0.05"] : ARGS
 
 # Define directories where data is located
 const datadir = ARGS_[1]
@@ -19,7 +19,7 @@ const grmfile = datadir * "grm.txt.gz"
 nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile)
 
 # Fit a penalized logistic mixed model
-modelfit = pglmm(nullmodel, plinkfile, verbose = true, GIC_crit = ARGS_[3])
+modelfit = pglmm(nullmodel, plinkfile, verbose = true, GIC_crit = "ALL")
 
 # Genetic predictors effects at each λ   
 pglmm_β = modelfit.betas[3:end,:]
@@ -61,7 +61,7 @@ cv_glmnet_β = cv_glmnet.path.betas[(length(varlist) + 1):end, argmin(cv_glmnet.
 # Lasso with 10 PCs
 #----------------------------
 # Combine covariate with genetic predictors
-varlistwithPC = ["AGE", "SEX", "PCA1","PCA2","PCA3","PCA4","PCA5","PCA6","PCA7","PCA8","PCA9","PCA10"]
+varlistwithPC = ["AGE", "SEX", "PC1","PC2","PC3","PC4","PC5","PC6","PC7","PC8","PC9","PC10"]
 XwithPC = [Array(covdf[:, varlistwithPC]) G]
 
 # Fit a penalized logistic model using GLMNet with 10 PCs
@@ -90,7 +90,7 @@ betas.cv_glmnetPC = cv_glmnetPC_β
 #-----------------------------------------------------
 # Create DataFrame for fitted values
 yhat = DataFrame()
-fpr = parse(Float64, ARGS_[4])
+fpr = parse(Float64, ARGS_[2])
 
 # pglmm
 pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.true_beta .== 0), dims = 1) / sum(betas.true_beta .== 0) .< fpr)[2]
