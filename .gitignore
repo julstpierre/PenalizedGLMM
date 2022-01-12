@@ -1,2 +1,8 @@
 data/UKBB/
 data/1000G/
+data/betas.txt
+data/covariate.txt
+data/geno.bed
+data/geno.bim
+data/geno.fam
+data/grm.txt.gz
