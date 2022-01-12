@@ -107,7 +107,6 @@ glmnetPCFPR_ind = findlast(sum((glmnetPC_β .!= 0) .& (betas.true_beta .== 0), d
 betas.glmnetPCFPR = glmnetPC_β[:, glmnetPCFPR_ind]
 yhat.glmnetPCFPR = GLMNet.predict(fit_glmnetPC, XwithPC, outtype = :prob)[:,glmnetPCFPR_ind]
 
-
 #-----------------------
 # Save results
 #-----------------------

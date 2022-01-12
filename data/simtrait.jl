@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.3", "0.3", "0.1", "10000", "0.003", "ALL", "data/"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.3", "0.3", "0.2", "10000", "0.003", "ALL", "data/"] : ARGS
 
 # Fraction of variance due to polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -63,7 +63,7 @@ if ARGS_[6] == "ALL"
                x -> [x; snp_inds] |>
                sort
 elseif ARGS_[6] == "NONE"
-    # Causal SNPs are excluded in the GRM
+    # Causal SNPs are excluded from the GRM
     grm_inds = sample(setdiff(axes(_1000G, 2), snp_inds), p_kin, replace = false, ordered = true)
 end
 
@@ -90,7 +90,7 @@ end
 # ------------------------------------------------------------------------
 # Variance components
 sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10)
-sigma2_g = 1/2 * h2_g / (1 - h2_g - h2_d) * sigma2_e
+sigma2_g = h2_g / (1 - h2_g - h2_d) * sigma2_e
 sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
 # Simulate fixed effects for randomly sampled causal snps
@@ -102,7 +102,7 @@ beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 # Simulate fixed effect for dichotomous environmental effect
 Z = (dat.POP .== ["SAS" "AFR"]) |>
     x -> x ./ std(x, dims=1)
-gamma = rand(Normal(0, sqrt(sigma2_d)), 2)
+gamma = rand(Normal(0, sqrt(sigma2_d/2)), 2)
 
 # Simulate random effects
 b = rand(MvNormal(sigma2_g * GRM))
@@ -111,7 +111,7 @@ b = rand(MvNormal(sigma2_g * GRM))
 logit(x) = log(x / (1 - x))
 expit(x) = exp(x) / (1 + exp(x))
 final_dat = @chain dat begin
-	@transform!(:logit_pi = logit(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE / 10) + G * beta + Z * gamma + b)
+	@transform!(:logit_pi = logit(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE / 10) + G * beta + Z * gamma)
     @transform!(:pi = expit.(:logit_pi))
     @transform(:y = rand.([Binomial(1, :pi[i]) for i in 1:n]))
     select!(Not([:pi, :logit_pi]))
