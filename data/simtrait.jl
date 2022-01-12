@@ -100,9 +100,9 @@ W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate fixed effect for dichotomous environmental effect
-Z = (dat.POP .== ["EUR" "EAS" "AMR" "SAS" "AFR"]) |>
+Z = (dat.POP .== ["SAS" "AFR"]) |>
     x -> x ./ std(x, dims=1)
-gamma = rand(Normal(0, sqrt(sigma2_d)), size(Z, 2))
+gamma = rand(Normal(0, sqrt(sigma2_d)), 2)
 
 # Simulate random effects
 b = rand(MvNormal(sigma2_g * GRM))
@@ -138,9 +138,8 @@ df.mafAMR = maf(@view(_1000G[dat.POP .== "AMR", snp_inds]))
 df.mafSAS = maf(@view(_1000G[dat.POP .== "SAS", snp_inds]))
 df.mafAFR = maf(@view(_1000G[dat.POP .== "AFR", snp_inds]))
 
-# Compute std and range for MAFs among the 5 populations
+# Compute range for MAFs among the 5 populations
 df.maf_range = vec(maximum([df.mafEUR df.mafEAS df.mafAMR df.mafSAS df.mafAFR], dims = 2) - minimum([df.mafEUR df.mafEAS df.mafAMR df.mafSAS df.mafAFR], dims = 2))
-df.maf_std = vec(std([df.mafEUR df.mafEAS df.mafAMR df.mafSAS df.mafAFR], dims = 2))
 
 # CSV file containing MAFs and simulated effect for each SNP
 CSV.write(ARGS_[7] * "betas.txt", df)
