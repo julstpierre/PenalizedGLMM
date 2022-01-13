@@ -28,7 +28,7 @@ snp_readBed("geno.bed",backingfile = tmpfile)
 # Attach the "bigSNP" object in R session
 obj.bigSNP <- snp_attach(paste0(tmpfile, ".rds"))
 p <- nrow(obj.bigSNP$map)
-G <- bigsnpr::snp_fastImputeSimple(obj.bigSNP$genotypes)[,1:p] %>% scale()
+G <- bigsnpr::snp_fastImputeSimple(obj.bigSNP$genotypes)[,1:p]
 
 #Read GRM matrix
 GRM <- as.matrix(fread("grm.txt.gz"))
@@ -42,7 +42,7 @@ X <- pheno.cov[,c("AGE","SEX")]
 
 fit_ggmix <- ggmix(x = as.matrix(cbind(X, G)),
                    y = as.matrix(pheno.cov$y),
-                   standardize = T,		
+                   standardize = TRUE,		
                    kinship=GRM,
                    penalty.factor = c(rep(0,ncol(X)),rep(1,p))
 )
