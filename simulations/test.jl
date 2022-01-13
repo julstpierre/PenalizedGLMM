@@ -80,7 +80,7 @@ betas = CSV.read(datadir * "betas.txt", DataFrame)
 
 # Return coefficients on original scale
 s = std(G, dims = 1, corrected = false)
-lmul!(Diagonal(vec(s)), betas.beta)
+lmul!(inv(Diagonal(vec(s))), betas.beta)
 
 # Save betas for pglmm with AIC, BIC and HDBIC, and glmnet_cv
 betas.pglmmAIC = pglmmAIC_β

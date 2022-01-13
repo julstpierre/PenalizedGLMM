@@ -113,13 +113,13 @@ function pglmm(
 
     # Return coefficients on original scale
     if !isempty(sX)
-        path.betas[1,:] +=  vec(muX * path.betas[2:k,:])
-        lmul!(Diagonal(vec(sX)), path.betas[2:k,:])
+        lmul!(inv(Diagonal(vec(sX))), path.betas[2:k,:])
+        path.betas[1,:] -=  vec(muX * path.betas[2:k,:])
     end
 
     if !isempty(sG)
-        path.betas[1,:] +=  vec(muG * path.betas[(k+1):end,:])
-        lmul!(Diagonal(vec(sG)), path.betas[(k+1):end,:])
+        lmul!(inv(Diagonal(vec(sG))), path.betas[(k+1):end,:])
+        path.betas[1,:] -=  vec(muG * path.betas[(k+1):end,:])
     end
 
     # Return lasso path
