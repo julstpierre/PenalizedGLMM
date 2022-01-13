@@ -90,7 +90,7 @@ end
 # ------------------------------------------------------------------------
 # Variance components
 sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10)
-sigma2_g = h2_g / (1 - h2_g - h2_d) * sigma2_e
+sigma2_g = 1/2 * h2_g / (1 - h2_g - h2_d) * sigma2_e
 sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
 # Simulate fixed effects for randomly sampled causal snps
@@ -111,7 +111,7 @@ b = rand(MvNormal(sigma2_g * GRM))
 logit(x) = log(x / (1 - x))
 expit(x) = exp(x) / (1 + exp(x))
 final_dat = @chain dat begin
-	@transform!(:logit_pi = logit(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE / 10) + G * beta + Z * gamma)
+	@transform!(:logit_pi = logit(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE / 10) + G * beta + Z * gamma + b)
     @transform!(:pi = expit.(:logit_pi))
     @transform(:y = rand.([Binomial(1, :pi[i]) for i in 1:n]))
     select!(Not([:pi, :logit_pi]))
