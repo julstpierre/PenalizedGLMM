@@ -25,7 +25,9 @@ function pglmm(
     irwls_maxiter::Integer = 500,
     K_::Union{Nothing, Integer} = nothing,
     verbose::Bool = false,
-    normalize_weights::Bool = false,
+    standardize_X::Bool = true,
+    standardize_G::Bool = true,
+    standardize_weight::Bool = false,
     criterion = :coef,
     GIC_crit::String = "AIC",
     earlystop::Bool = true,
@@ -35,18 +37,18 @@ function pglmm(
     # read PLINK files
     geno = SnpArray(plinkfile * ".bed")
     
-    # Convert genotype file to matrix, convert to additive model (default), scale and impute
+    # Convert genotype file to matrix, convert to additive model (default) and impute
     snpinds = isnothing(snpinds) ? (1:size(geno, 2)) : snpinds 
     geneticrowinds = isnothing(geneticrowinds) ? (1:size(geno, 1)) : geneticrowinds
-    G = convert(Matrix{Float64}, @view(geno[geneticrowinds, snpinds]), model = snpmodel, center = true, scale = true, impute = true)
+    G = convert(Matrix{Float64}, @view(geno[geneticrowinds, snpinds]), model = snpmodel, impute = true)
 
     # Initialize number of subjects and predictors (including intercept)
     (n, p), k = size(G), size(nullmodel.X, 2)
     @assert n == length(nullmodel.y) "Genotype matrix and y must have same number of rows"
 
-    # Center and scale non-genetic covariates
-    X = (nullmodel.X .- mean(nullmodel.X, dims = 1)) ./ std(nullmodel.X, dims = 1)
-    X = isnan(X[1, 1]) ? [ones(n) view(X, :, 2:k)] : X
+    # standardize non-genetic covariates and genetic predictors
+    X, muX, sX = standardizeX(nullmodel.X, standardize_X, all(nullmodel.X[:,1] .== 1))
+    G, muG, sG = standardizeX(G, standardize_G)
 
     # Initialize β and penalty factors
     β = sparse([nullmodel.α; zeros(p)])
@@ -57,7 +59,7 @@ function pglmm(
 
     # Define (normalized) weights for each observation
     w = weight(nullmodel.family, eigvals, nullmodel.φ)
-    w_n = normalize_weights ? w / sum(w) : w
+    w_n = standardize_weight ? w / sum(w) : w
 
     # Initialize working variable and mean vector and initialize null deviance 
     # based on model with intercept only and no random effects
@@ -109,11 +111,19 @@ function pglmm(
     GIC = NamedArray(path.GIC)
     setnames!(GIC, convert(Vector{String}, GIC_crit), 1)
 
-    # Calculate fitted means
-    fitted_means = fitted(nullmodel.family, path.fitted_values, nullmodel, UD_inv)
+    # Return coefficients on original scale
+    if !isempty(sX)
+        path.betas[1,:] +=  vec(muX * path.betas[2:k,:])
+        lmul!(Diagonal(vec(sX)), path.betas[2:k,:])
+    end
+
+    if !isempty(sG)
+        path.betas[1,:] +=  vec(muG * path.betas[(k+1):end,:])
+        lmul!(Diagonal(vec(sG)), path.betas[(k+1):end,:])
+    end
 
     # Return lasso path
-    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, GIC, fitted_means)
+    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, GIC)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -148,11 +158,7 @@ function pglmm_fit(
     betas = zeros(size(Xstar, 2), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    GIC = zeros(Float64, length(a_n), K) 
-    fitted_values = zeros(size(Xstar, 1), K)
-
-    # Initialize μ outside of loop
-    μ = zeros(Float64, size(Xstar, 1))
+    GIC = zeros(Float64, length(a_n), K)
 
     # Loop through sequence of λ
     i = 0
@@ -212,13 +218,12 @@ function pglmm_fit(
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
         GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
-        fitted_values[:,i] = μ
 
         # Test whether we should continue
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0)) || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i], fitted_values = fitted_values[:,1:i])
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
 end
 
 function pglmm_fit(
@@ -248,7 +253,6 @@ function pglmm_fit(
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
     GIC = zeros(Float64, length(a_n), K)
-    fitted_values = zeros(size(Xstar, 1), K) 
 
     # Loop through sequence of λ
     i = 0
@@ -276,13 +280,12 @@ function pglmm_fit(
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
         GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
-        fitted_values[:,i] = r
 
         # Test whether we should continue
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0))|| pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i], fitted_values = fitted_values[:,1:i])
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
 end
 
 # Function to perform coordinate descent with a lasso penalty
@@ -405,7 +408,6 @@ struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     npasses::Int                     # actual number of passes over the
                                      # data for all lamda values
     GIC
-    fitted_means::Matrix{Float64}    # fitted means
 end
 
 function show(io::IO, g::pglmmPath)
@@ -466,11 +468,7 @@ end
 # Function to update linear predictor and mean at each iteration
 const PMIN = 1e-5
 const PMAX = 1-1e-5
-function updateμ(
-    r::Vector{Float64},
-    Ytilde::Vector{Float64},
-    UD_inv::Matrix{Float64},
-)
+function updateμ(r::Vector{Float64}, Ytilde::Vector{Float64}, UD_inv::Matrix{Float64})
     η = Ytilde - 4 * UD_inv * r
     μ = GLM.linkinv.(LogitLink(), η)
     μ = [μ[i] < PMIN ? PMIN : μ[i] > PMAX ? PMAX : μ[i] for i in 1:length(μ)]
@@ -481,39 +479,32 @@ end
 model_dev(::Binomial, y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = LogisticDeviance(y, r, w, μ)
 model_dev(::Normal, y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = NormalDeviance(r, w)
 
-function LogisticDeviance(
-    y::Vector{Int64},
-    r::Vector{Float64},
-    w::Vector{Float64},
-    μ::Vector{Float64}
-)
+function LogisticDeviance(y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64})
     -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + sum(w .* (1 .- 4 * w) .* r.^2)
-
 end
 
-function NormalDeviance(
-    r::Vector{Float64},
-    w::Vector{Float64}
-)
+function NormalDeviance(r::Vector{Float64}, w::Vector{Float64})
     dot(w, r.^2)
 end
 
-# Function to calculate fitted values
-function fitted(
-    ::Binomial,
-    fitted_values::Matrix{Float64},
-    nullmodel,
-    UD_inv::Matrix{Float64}
-)
-    fitted_values
+function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool = false) where T
+    if standardize
+        mu = intercept ? mean(X[:,2:end], dims = 1) : mean(X, dims = 1) 
+        s = intercept ? std(X[:,2:end], dims = 1, corrected = false) : std(X, dims = 1, corrected = false)
+        @assert all(s .!= 0) "One predictor is a constant, hence it cannot be standardize."
+        X = intercept ? [X[:,1] (X[:,2:end] .- mu) ./ s] : (X .- mu) ./ s
+    else
+        mu = []; s = []
+    end
+
+    X, mu, s
 end
 
-function fitted(
-    ::Normal,
-    fitted_values::Matrix{Float64},
-    nullmodel,
-    UD_inv::Matrix{Float64}
-)
-    r = fitted_values
-    nullmodel.y - nullmodel.φ * UD_inv * r
+function predict(path::pglmmPath, X::AbstractMatrix{T}; outtype = :response) where T
+    η = path.a0' .+ X * path.betas
+    if outtype == :response
+        return(η)
+    elseif outtype == :prob
+        return(GLM.linkinv.(LogitLink(), η))
+    end
 end
