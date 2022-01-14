@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.3", "0.3", "0.2", "10000", "0.003", "ALL", "data/"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.8", "0", "0.1", "10000", "0.005", "ALL", "data/"] : ARGS
 
 # Fraction of variance due to polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -49,9 +49,20 @@ end
 # Read plink bim file
 _1000G = SnpArray("1000G/1000G.bed")
 
-# Sample p candidate SNPs randomly accross genome, convert to additive model, scale and impute
+# Compute MAF for each SNP and in each Population
+_maf = DataFrame()
+_maf.EUR = maf(@view(_1000G[dat.POP .== "EUR", :]))
+_maf.EAS = maf(@view(_1000G[dat.POP .== "EAS", :]))
+_maf.AMR = maf(@view(_1000G[dat.POP .== "AMR", :]))
+_maf.SAS = maf(@view(_1000G[dat.POP .== "SAS", :]))
+_maf.AFR = maf(@view(_1000G[dat.POP .== "AFR", :]))
+
+# Compute range for MAFs among the 5 populations
+_maf.range = vec(maximum([_maf.EUR _maf.EAS _maf.AMR _maf.SAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.EAS _maf.AMR _maf.SAS _maf.AFR], dims = 2))
+
+# Sample p candidate SNPs randomly accross genome, convert to additive model and impute
 snp_inds = sample(axes(_1000G, 2), p, replace = false, ordered = true)
-G = convert(Matrix{Float64}, @view(_1000G[:, snp_inds]), center = true, scale = true, impute = true)
+G = convert(Matrix{Float64}, @view(_1000G[:, snp_inds]), impute = true)
 
 # Save filtered plink file
 rowmask, colmask = trues(n), [col in snp_inds for col in 1:size(_1000G, 2)]
@@ -107,6 +118,11 @@ gamma = rand(Normal(0, sqrt(sigma2_d/2)), 2)
 # Simulate random effects
 b = rand(MvNormal(sigma2_g * GRM))
 
+# Standardize G
+mu = mean(G, dims = 1) 
+s = std(G, dims = 1, corrected = false)
+G = (G .- mu) ./ s
+
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
 expit(x) = exp(x) / (1 + exp(x))
@@ -118,8 +134,8 @@ final_dat = @chain dat begin
 end
 
 # Prevalence by Population
-print(mean(final_dat.y))
-print(combine(groupby(final_dat, :POP), :y => mean))
+println("Prevalence is ", round(mean(final_dat.y), digits = 3))
+println(combine(groupby(final_dat, :POP), :y => mean))
 
 #----------------------
 # Write csv files
@@ -127,19 +143,17 @@ print(combine(groupby(final_dat, :POP), :y => mean))
 # CSV file containing covariates
 CSV.write(ARGS_[7] * "covariate.txt", final_dat)
 
-# Associate position with simulated effect for each SNP
+# Convert simulated effect for each SNP on original genotype scale
 df = SnpData("1000G/1000G").snp_info[snp_inds, [1,4]]
-df.beta = beta
+df.beta = [ beta[i] / s[i] for i in 1:p ]
 
-# Compute MAF for each SNP and in each Population
-df.mafEUR = maf(@view(_1000G[dat.POP .== "EUR", snp_inds]))
-df.mafEAS = maf(@view(_1000G[dat.POP .== "EAS", snp_inds]))
-df.mafAMR = maf(@view(_1000G[dat.POP .== "AMR", snp_inds]))
-df.mafSAS = maf(@view(_1000G[dat.POP .== "SAS", snp_inds]))
-df.mafAFR = maf(@view(_1000G[dat.POP .== "AFR", snp_inds]))
-
-# Compute range for MAFs among the 5 populations
-df.maf_range = vec(maximum([df.mafEUR df.mafEAS df.mafAMR df.mafSAS df.mafAFR], dims = 2) - minimum([df.mafEUR df.mafEAS df.mafAMR df.mafSAS df.mafAFR], dims = 2))
+# Save MAF for each SNP and in each Population
+df.mafEUR = _maf.EUR[snp_inds]
+df.mafEAS = _maf.EAS[snp_inds]
+df.mafAMR = _maf.AMR[snp_inds]
+df.mafSAS = _maf.SAS[snp_inds]
+df.mafAFR = _maf.AFR[snp_inds]
+df.mafrange = _maf.range[snp_inds]
 
 # CSV file containing MAFs and simulated effect for each SNP
 CSV.write(ARGS_[7] * "betas.txt", df)
