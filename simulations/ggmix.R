@@ -29,6 +29,8 @@ snp_readBed("geno.bed",backingfile = tmpfile)
 obj.bigSNP <- snp_attach(paste0(tmpfile, ".rds"))
 p <- nrow(obj.bigSNP$map)
 G <- bigsnpr::snp_fastImputeSimple(obj.bigSNP$genotypes)[,1:p]
+s <- apply(G, 2, sd)
+G <- scale(G)
 
 #Read GRM matrix
 GRM <- as.matrix(fread("grm.txt.gz"))
@@ -52,12 +54,12 @@ aic <- ggmix::gic(fit_ggmix, an = 2)
 bic <- ggmix::gic(fit_ggmix, an = log(n))
 
 # Save betas for ggmix with different GIC criteria
-ggmixAIC_beta <- coef(aic)[setdiff(rownames(coef(aic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
-ggmixBIC_beta <- coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
+ggmixAIC_beta <- 1/s * coef(aic)[setdiff(rownames(coef(aic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
+ggmixBIC_beta <- 1/s * coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","AGE","SEX","eta","sigma2")),]
 
 # Read file with real values
 true_betas = read.csv("betas.txt")$beta
-ggmix_betas = fit_ggmix$beta[-(1:ncol(X)),]
+ggmix_betas = 1/s * fit_ggmix$beta[-(1:ncol(X)),]
 
 # False positive rate (FPR) at 1%
 v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) < fpr
