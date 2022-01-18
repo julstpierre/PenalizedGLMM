@@ -3,7 +3,7 @@ module PenalizedGLMM
 using GLM
 using LinearAlgebra, SparseArrays
 using CSV, CodecZlib, Distributions, DataFrames, StatsBase
-using SnpArrays, NamedArrays
+using SnpArrays
 
 import Base.show
 export pglmm_null

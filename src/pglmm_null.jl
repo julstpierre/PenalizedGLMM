@@ -15,6 +15,8 @@ function pglmm_null(
     covfile::AbstractString,
     grmfile::AbstractString;
     # keyword arguments
+    covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+    grminds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     family::UnivariateDistribution = Binomial(),
     link::GLM.Link = LogitLink(),
     M::Union{Nothing, Vector{Any}} = nothing,
@@ -29,9 +31,17 @@ function pglmm_null(
     # read covariate file
     covdf = CSV.read(covfile, DataFrame)
 
+    if !ismissing(covrowinds)
+        covdf = covdf[covrowinds,:]
+    end 
+
     # read grm file
     GRM = open(GzipDecompressorStream, grmfile, "r") do stream
         Symmetric(Matrix(CSV.read(stream, DataFrame)))
+    end
+
+    if !ismissing(grminds)
+        GRM = GRM[grminds, grminds]
     end
 
     # Initialize number of subjects and genetic predictors
@@ -123,7 +133,7 @@ function pglmm_null(
 
             # For binomial, set φ = 1. Else, return first element of theta as φ
             if family == Binomial()
-                φ, τ = 1, theta
+                φ, τ = 1.0, theta
                 τV = sum(τ .* V)
             elseif family == Normal()
                 φ, τ = first(theta), deleteat!(theta, 1)

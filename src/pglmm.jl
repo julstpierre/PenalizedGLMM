@@ -19,8 +19,8 @@ function pglmm(
     plinkfile::AbstractString;
     # keyword arguments
     snpmodel = ADDITIVE_MODEL,
-    snpinds = nothing,
-    geneticrowinds = nothing,
+    snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+    geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     irwls_tol::Float64 = 1e-7,
     irwls_maxiter::Integer = 500,
     K_::Union{Nothing, Integer} = nothing,
@@ -29,7 +29,6 @@ function pglmm(
     standardize_G::Bool = true,
     standardize_weight::Bool = false,
     criterion = :coef,
-    GIC_crit::String = "AIC",
     earlystop::Bool = true,
     kwargs...
     )
@@ -91,39 +90,23 @@ function pglmm(
     # Sequence of λ
     λ_seq, K = lambda_seq(Ystar, Xstar; weights = w_n, penalty_factor = p_f)
     K = isnothing(K_) ? K : K_
-
-    # GIC penalty parameter
-    if GIC_crit == "HDBIC"
-        a_n = [log(log(n)) * log(p)]
-    elseif GIC_crit == "BIC"
-        a_n = [log(n)]
-    elseif GIC_crit == "AIC"
-        a_n = [2]
-    elseif GIC_crit == "ALL"
-        GIC_crit = ["HDBIC", "BIC", "AIC"]
-        a_n = [log(log(n)) * log(p), log(n), 2]
-    end
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, a_n, earlystop)
-
-    # Create a Named Array for GIC
-    GIC = NamedArray(path.GIC)
-    setnames!(GIC, convert(Vector{String}, GIC_crit), 1)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, earlystop)
 
     # Return coefficients on original scale
     if !isempty(sX)
-        lmul!(inv(Diagonal(vec(sX))), path.betas[2:k,:])
+        path.betas[2:k,:] = lmul!(inv(Diagonal(vec(sX))), path.betas[2:k,:])
         path.betas[1,:] -=  vec(muX * path.betas[2:k,:])
     end
 
     if !isempty(sG)
-        lmul!(inv(Diagonal(vec(sG))), path.betas[(k+1):end,:])
+        path.betas[(k+1):end,:] = lmul!(inv(Diagonal(vec(sG))), path.betas[(k+1):end,:])
         path.betas[1,:] -=  vec(muG * path.betas[(k+1):end,:])
     end
 
     # Return lasso path
-    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, GIC)
+    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, path.residuals, path.fitted_means, U, eigvals, nullmodel.φ)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -151,14 +134,16 @@ function pglmm_fit(
     irwls_tol::Float64,
     irwls_maxiter::Int64,
     criterion,
-    a_n::Vector{Float64},
     earlystop::Bool  
 )
     # Initialize array to store output for each λ
-    betas = zeros(size(Xstar, 2), K)
+    sizeX = size(Xstar)
+    betas = zeros(sizeX[2], K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    GIC = zeros(Float64, length(a_n), K)
+    residuals = zeros(sizeX[1], K)
+    fitted_means = zeros(sizeX[1], K)
+    μ = zeros(sizeX[1])
 
     # Loop through sequence of λ
     i = 0
@@ -217,13 +202,14 @@ function pglmm_fit(
         betas[:, i] = convert(Vector{Float64}, β)
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
-        GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
+        residuals[:, i] = r
+        fitted_means[:, i] = μ
 
         # Test whether we should continue
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0)) || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], residuals = view(residuals, :, 1:i), fitted_means = view(fitted_means, :, 1:i))
 end
 
 function pglmm_fit(
@@ -245,14 +231,13 @@ function pglmm_fit(
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
-    a_n::Vector{Float64},
     earlystop::Bool  
 )
     # Initialize array to store output for each λ
     betas = zeros(size(Xstar, 2), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    GIC = zeros(Float64, length(a_n), K)
+    residuals = zeros(size(Xstar, 1), K)
 
     # Loop through sequence of λ
     i = 0
@@ -279,13 +264,13 @@ function pglmm_fit(
         betas[:, i] = convert(Vector{Float64}, β)
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
-        GIC[:,i] = dev .+ a_n * length(β.nzind[2:end])
+        residuals[:, i] = r
 
         # Test whether we should continue
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0))|| pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], GIC = GIC[:,1:i])
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], residuals = view(residuals, :, 1:i), fitted_means = missing)
 end
 
 # Function to perform coordinate descent with a lasso penalty
@@ -397,7 +382,7 @@ modeltype(::Normal) = "Least Squares GLMNet"
 modeltype(::Binomial) = "Logistic"
 
 weight(::Normal, eigvals::Vector{Float64}, φ::Float64) = (1 ./(φ .+ eigvals))
-weight(::Binomial, eigvals::Vector{Float64}, φ::Int64) = (1 ./(4 .+ eigvals))
+weight(::Binomial, eigvals::Vector{Float64}, φ::Float64) = (1 ./(4 .+ eigvals))
 struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     family::F
     a0::A                            # intercept values for each solution
@@ -407,7 +392,11 @@ struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     lambda::Vector{Float64}          # lamda values corresponding to each solution
     npasses::Int                     # actual number of passes over the
                                      # data for all lamda values
-    GIC
+    residuals                        # residuals
+    fitted_means                     # fitted_means
+    U::Matrix{Float64}               # eigenvectors matrix
+    eigvals::Vector{Float64}         # eigenvalues vector
+    φ::Float64                     # dispersion parameter
 end
 
 function show(io::IO, g::pglmmPath)
@@ -487,6 +476,7 @@ function NormalDeviance(r::Vector{Float64}, w::Vector{Float64})
     dot(w, r.^2)
 end
 
+# Standardize predictors for lasso
 function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool = false) where T
     if standardize
         mu = intercept ? mean(X[:,2:end], dims = 1) : mean(X, dims = 1) 
@@ -500,11 +490,104 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool =
     X, mu, s
 end
 
-function predict(path::pglmmPath, X::AbstractMatrix{T}; outtype = :response) where T
-    η = path.a0' .+ X * path.betas
+# Predict phenotype for binary trait
+function predict(path::pglmmPath{Binomial{Float64}, Vector{Float64}, Matrix{Float64}}, 
+                 X::AbstractMatrix{T}, 
+                 grmfile::AbstractString; 
+                 grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                 grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                 s::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                 outtype = :response
+                ) where T
+    
+    # read file containing the m x (N-m) kinship matrix between m test and (N-m) training subjects
+    Kins = open(GzipDecompressorStream, grmfile, "r") do stream
+        Symmetric(Matrix(CSV.read(stream, DataFrame)))
+    end
+
+    if !ismissing(grmrowinds)
+        Kins = Kins[grmrowinds, :]
+    end
+
+    if !ismissing(grmcolinds)
+        Kins = Kins[:, grmcolinds]
+    end
+
+    # Number of predictions to compute. User can provide index s for which to provide predictions, 
+    # rather than computing predictions for the whole path.
+    s = ismissing(s) ? (1:size(path.betas, 2)) : s
+
+    # Variance-covariance of the training data
+    W = [Diagonal(path.fitted_means[:,i] .* (1 .- path.fitted_means[:,i])) for i in s]
+    D = Diagonal(path.eigvals)
+    Σ_inv = [inv(16 .* path.U' * W[i] * path.U + D) for i in 1:length(W)]
+
+    # Random effect for test data
+    r = path.residuals[:, s]
+    b = [Kins * path.U * Σ_inv[i] * r[:,i] for i in 1:length(Σ_inv)] |> x-> reduce(hcat, x)
+
+    # Linear predictor
+    η = path.a0[s]' .+ X * path.betas[:,s] + b
     if outtype == :response
         return(η)
     elseif outtype == :prob
         return(GLM.linkinv.(LogitLink(), η))
     end
+end
+
+# Predict phenotype for normal trait
+function predict(path::pglmmPath{Normal{Float64}, Vector{Float64}, Matrix{Float64}}, 
+                 X::AbstractMatrix{T}, 
+                 grmfile::AbstractString; 
+                 grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                 grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                 s::Union{Nothing,AbstractVector{<:Integer}} = nothing
+                ) where T
+
+    # read file containing the m x (N-m) kinship matrix between m test and (N-m) training subjects
+    Kins = open(GzipDecompressorStream, grmfile, "r") do stream
+        Symmetric(Matrix(CSV.read(stream, DataFrame)))
+    end
+
+    if !ismissing(grmrowinds)
+        Kins = Kins[grmrowinds, :]
+    end
+
+    if !ismissing(grmcolinds)
+        Kins = Kins[:, grmcolinds]
+    end
+
+    # Number of predictions to compute. User can provide index s for which to provide predictions, 
+    # rather than computing predictions for the whole path.
+    s = ismissing(s) ? (1:size(path.betas, 2)) : s
+
+    # Linear predictor
+    UDinv = path.U * Diagonal(weight(Normal(), path.eigvals, path.φ))
+    η = path.a0[s]' .+ X * path.betas[:,s] + Kins * UDinv * path.residuals[:,s]
+    return(η)
+end 
+
+# GIC penalty parameter
+function GIC(path::pglmmPath, criterion)
+    
+    # Obtain number of rows (n), predictors (p) and λ values (K)
+    n = size(path.residuals, 1)
+    p, K = size(path.betas)
+    df = [length(findall(x -> x != 0, vec(view(path.betas, :, k)))) for k in K]
+
+    # Define GIC criterion
+    if criterion == :BIC
+        a_n = log(n)
+    elseif criterion == :AIC
+        a_n = 2
+    elseif criterion == :HDBIC
+        a_n = log(log(n)) * log(p)
+    end
+
+    # Compute deviance for each value of λ
+    dev = (1 .- path.pct_dev) * path.null_dev
+    GIC = dev .+ a_n * df
+
+    # Return betas with lowest GIC value
+    return(path.betas[:, argmin(GIC)])
 end
