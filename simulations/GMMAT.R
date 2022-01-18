@@ -5,10 +5,12 @@ library(data.table)
 
 #Read phenotype and covariates file
 pheno.cov <- read.table("covariate.txt", sep=",", header = T) %>%
-  mutate(ID=paste(FID,":",IID,sep=""))
+  mutate(ID=paste(FID,":",IID,sep="")) %>%
+  filter(train == "true")
 
 #Read GRM matrix
-GRM <- as.matrix(fread("grm.txt.gz"))
+traininds = which(pheno.cov$train == "true")
+GRM <- as.matrix(fread("grm.txt.gz"))[traininds, traininds]
 colnames(GRM) <- pheno.cov$ID
 rownames(GRM) <- pheno.cov$ID
 
