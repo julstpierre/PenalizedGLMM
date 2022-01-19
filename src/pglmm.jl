@@ -536,13 +536,14 @@ function predict(path::pglmmPath{Binomial{Float64}, Vector{Float64}, Matrix{Floa
 end
 
 # Predict phenotype for normal trait
-function predict(path::pglmmPath{Normal{Float64}, Vector{Float64}, Matrix{Float64}}, 
-                 X::AbstractMatrix{T}, 
-                 grmfile::AbstractString; 
-                 grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                 grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                 s::Union{Nothing,AbstractVector{<:Integer}} = nothing
-                ) where T
+function predict2(path::pglmmPath, 
+                  X::AbstractMatrix{T}, 
+                  grmfile::AbstractString; 
+                  grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  s::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  outtype = :response
+                 ) where T
 
     # read file containing the m x (N-m) kinship matrix between m test and (N-m) training subjects
     Kins = open(GzipDecompressorStream, grmfile, "r") do stream
@@ -562,9 +563,14 @@ function predict(path::pglmmPath{Normal{Float64}, Vector{Float64}, Matrix{Float6
     s = isnothing(s) ? (1:size(path.betas, 2)) : s
 
     # Linear predictor
-    UDinv = path.U * Diagonal(weight(Normal(), path.eigvals, path.φ))
+    UDinv = path.U * Diagonal(weight(path.family, path.eigvals, path.φ))
     η = path.a0[s]' .+ X * path.betas[:,s] + Kins * UDinv * path.residuals[:,s]
-    return(η)
+
+    if outtype == :response
+        return(η)
+    elseif outtype == :prob
+        return(GLM.linkinv.(LogitLink(), η))
+    end
 end 
 
 # GIC penalty parameter
