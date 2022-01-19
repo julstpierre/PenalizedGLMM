@@ -64,12 +64,13 @@ _maf.EAS = maf(@view(_1000G[(dat.POP .== "EAS") .& dat.train, :]))
 _maf.AMR = maf(@view(_1000G[(dat.POP .== "AMR") .& dat.train, :]))
 _maf.SAS = maf(@view(_1000G[(dat.POP .== "SAS") .& dat.train, :]))
 _maf.AFR = maf(@view(_1000G[(dat.POP .== "AFR") .& dat.train, :]))
+_maf.ALL = maf(@view(_1000G[dat.train, :]))
 
 # Compute range for MAFs among the 5 populations
 _maf.range = vec(maximum([_maf.EUR _maf.EAS _maf.AMR _maf.SAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.EAS _maf.AMR _maf.SAS _maf.AFR], dims = 2))
 
 # Sample p candidate SNPs randomly accross genome, convert to additive model and impute
-snp_inds = sample(axes(_1000G, 2), p, replace = false, ordered = true)
+snp_inds = sample(axes(_1000G, 2),  weights(_maf.range / sum(_maf.range)), p, replace = false, ordered = true)
 G = convert(Matrix{Float64}, @view(_1000G[:, snp_inds]), impute = true)
 
 # Save filtered plink file
