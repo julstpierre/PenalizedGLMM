@@ -505,17 +505,17 @@ function predict(path::pglmmPath{Binomial{Float64}, Vector{Float64}, Matrix{Floa
         Symmetric(Matrix(CSV.read(stream, DataFrame)))
     end
 
-    if !ismissing(grmrowinds)
+    if !isnothing(grmrowinds)
         Kins = Kins[grmrowinds, :]
     end
 
-    if !ismissing(grmcolinds)
+    if !isnothing(grmcolinds)
         Kins = Kins[:, grmcolinds]
     end
 
     # Number of predictions to compute. User can provide index s for which to provide predictions, 
     # rather than computing predictions for the whole path.
-    s = ismissing(s) ? (1:size(path.betas, 2)) : s
+    s = isnothing(s) ? (1:size(path.betas, 2)) : s
 
     # Variance-covariance of the training data
     W = [Diagonal(path.fitted_means[:,i] .* (1 .- path.fitted_means[:,i])) for i in s]
@@ -527,7 +527,7 @@ function predict(path::pglmmPath{Binomial{Float64}, Vector{Float64}, Matrix{Floa
     b = [Kins * path.U * Σ_inv[i] * r[:,i] for i in 1:length(Σ_inv)] |> x-> reduce(hcat, x)
 
     # Linear predictor
-    η = path.a0[s]' .+ X * path.betas[:,s] + b
+    η = path.a0[s]' .+ X * path.betas[:,s] + b |> vec()
     if outtype == :response
         return(η)
     elseif outtype == :prob
@@ -549,17 +549,17 @@ function predict(path::pglmmPath{Normal{Float64}, Vector{Float64}, Matrix{Float6
         Symmetric(Matrix(CSV.read(stream, DataFrame)))
     end
 
-    if !ismissing(grmrowinds)
+    if !isnothing(grmrowinds)
         Kins = Kins[grmrowinds, :]
     end
 
-    if !ismissing(grmcolinds)
+    if !isnothing(grmcolinds)
         Kins = Kins[:, grmcolinds]
     end
 
     # Number of predictions to compute. User can provide index s for which to provide predictions, 
     # rather than computing predictions for the whole path.
-    s = ismissing(s) ? (1:size(path.betas, 2)) : s
+    s = isnothing(s) ? (1:size(path.betas, 2)) : s
 
     # Linear predictor
     UDinv = path.U * Diagonal(weight(Normal(), path.eigvals, path.φ))

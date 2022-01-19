@@ -31,7 +31,7 @@ function pglmm_null(
     # read covariate file
     covdf = CSV.read(covfile, DataFrame)
 
-    if !ismissing(covrowinds)
+    if !isnothing(covrowinds)
         covdf = covdf[covrowinds,:]
     end 
 
@@ -40,7 +40,7 @@ function pglmm_null(
         Symmetric(Matrix(CSV.read(stream, DataFrame)))
     end
 
-    if !ismissing(grminds)
+    if !isnothing(grminds)
         GRM = GRM[grminds, grminds]
     end
 
