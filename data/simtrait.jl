@@ -113,7 +113,7 @@ end
 # ------------------------------------------------------------------------
 # Variance components
 sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10)
-sigma2_g = 1/2 * h2_g / (1 - h2_g - h2_d) * sigma2_e
+sigma2_g = h2_d == 0 ? 1/2 * h2_g / (1 - h2_g - h2_d) * sigma2_e : h2_g / (1 - h2_g - h2_d) * sigma2_e
 sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
 # Simulate fixed effects for randomly sampled causal snps
@@ -128,7 +128,7 @@ Z = (dat.POP .== ["SAS" "AFR"]) |>
 gamma = rand(Normal(0, sqrt(sigma2_d/2)), 2)
 
 # Simulate random effects
-b = rand(MvNormal(sigma2_g * GRM))
+b = h2_d == 0 ? rand(MvNormal(sigma2_g * GRM)) : zeros(n)
 
 # Standardize G
 mu = mean(G, dims = 1) 
