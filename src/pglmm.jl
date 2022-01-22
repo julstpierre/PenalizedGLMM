@@ -106,7 +106,7 @@ function pglmm(
     end
 
     # Return lasso path
-    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, path.residuals, path.fitted_means, U, eigvals, nullmodel.φ)
+    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -141,7 +141,6 @@ function pglmm_fit(
     betas = zeros(sizeX[2], K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    residuals = zeros(sizeX[1], K)
     fitted_means = zeros(sizeX[1], K)
     μ = zeros(sizeX[1])
 
@@ -202,14 +201,13 @@ function pglmm_fit(
         betas[:, i] = convert(Vector{Float64}, β)
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
-        residuals[:, i] = r
         fitted_means[:, i] = μ
 
         # Test whether we should continue
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0)) || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], residuals = view(residuals, :, 1:i), fitted_means = view(fitted_means, :, 1:i))
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
 end
 
 function pglmm_fit(
@@ -270,7 +268,7 @@ function pglmm_fit(
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0))|| pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], residuals = view(residuals, :, 1:i), fitted_means = missing)
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(residuals, :, 1:i))
 end
 
 # Function to perform coordinate descent with a lasso penalty
@@ -383,20 +381,19 @@ modeltype(::Binomial) = "Logistic"
 
 weight(::Normal, eigvals::Vector{Float64}, φ::Float64) = (1 ./(φ .+ eigvals))
 weight(::Binomial, eigvals::Vector{Float64}, φ::Float64) = (1 ./(4 .+ eigvals))
+
 struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     family::F
-    a0::A                            # intercept values for each solution
-    betas::B                         # coefficient values for each solution
-    null_dev::Float64                # Null deviance of the model
-    pct_dev::Vector{Float64}         # R^2 values for each solution
-    lambda::Vector{Float64}          # lamda values corresponding to each solution
-    npasses::Int                     # actual number of passes over the
-                                     # data for all lamda values
-    residuals                        # residuals
-    fitted_means                     # fitted_means
-    U::Matrix{Float64}               # eigenvectors matrix
-    eigvals::Vector{Float64}         # eigenvalues vector
-    φ::Float64                     # dispersion parameter
+    a0::A                                       # intercept values for each solution
+    betas::B                                    # coefficient values for each solution
+    null_dev::Float64                           # Null deviance of the model
+    pct_dev::Vector{Float64}                    # R^2 values for each solution
+    lambda::Vector{Float64}                     # lamda values corresponding to each solution
+    npasses::Int                                # actual number of passes over the
+                                                # data for all lamda values
+    fitted_values                               # fitted_values
+    y::Union{Vector{Int64}, Vector{Float64}}    # eigenvalues vector
+    UD_inv::Matrix{Float64}                     # eigenvectors matrix times diagonal weights matrix
 end
 
 function show(io::IO, g::pglmmPath)
@@ -490,58 +487,14 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool =
     X, mu, s
 end
 
-# Predict phenotype for binary trait
-function predict(path::pglmmPath{Binomial{Float64}, Vector{Float64}, Matrix{Float64}}, 
-                 X::AbstractMatrix{T}, 
-                 grmfile::AbstractString; 
-                 grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                 grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                 s::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                 outtype = :response
-                ) where T
-    
-    # read file containing the m x (N-m) kinship matrix between m test and (N-m) training subjects
-    Kins = open(GzipDecompressorStream, grmfile, "r") do stream
-        Symmetric(Matrix(CSV.read(stream, DataFrame)))
-    end
-
-    if !isnothing(grmrowinds)
-        Kins = Kins[grmrowinds, :]
-    end
-
-    if !isnothing(grmcolinds)
-        Kins = Kins[:, grmcolinds]
-    end
-
-    # Number of predictions to compute. User can provide index s for which to provide predictions, 
-    # rather than computing predictions for the whole path.
-    s = isnothing(s) ? (1:size(path.betas, 2)) : s
-
-    # Variance-covariance of the training data
-    W = [Diagonal(path.fitted_means[:,i] .* (1 .- path.fitted_means[:,i])) for i in s]
-    D = Diagonal(path.eigvals)
-    Σ_inv = [inv(16 .* path.U' * W[i] * path.U + D) for i in 1:length(W)]
-
-    # Random effect for test data
-    r = path.residuals[:, s]
-    b = [Kins * path.U * Σ_inv[i] * r[:,i] for i in 1:length(Σ_inv)] |> x-> reduce(hcat, x)
-
-    # Linear predictor
-    η = path.a0[s]' .+ X * path.betas[:,s] + b
-    if outtype == :response
-        return(η)
-    elseif outtype == :prob
-        return(GLM.linkinv.(LogitLink(), η))
-    end
-end
-
 # Predict phenotype for normal trait
-function predict2(path::pglmmPath, 
+function predict(path::pglmmPath, 
                   X::AbstractMatrix{T}, 
                   grmfile::AbstractString; 
                   grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   s::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  fixed_effects_only::Bool = false,
                   outtype = :response
                  ) where T
 
@@ -563,9 +516,17 @@ function predict2(path::pglmmPath,
     s = isnothing(s) ? (1:size(path.betas, 2)) : s
 
     # Linear predictor
-    UDinv = path.U * Diagonal(weight(path.family, path.eigvals, path.φ))
-    η = path.a0[s]' .+ X * path.betas[:,s] + Kins * UDinv * path.residuals[:,s]
+    η = path.a0[s]' .+ X * path.betas[:,s]
 
+    if fixed_effects_only == false
+        if path.family == Binomial()
+            η += Kins * (path.y .- path.fitted_values[:,s])
+        elseif path.family == Normal()
+            η += Kins * path.UD_inv * path.fitted_values[:,s]
+        end
+    end
+
+    # Return linear predictor (default) or fitted probs
     if outtype == :response
         return(η)
     elseif outtype == :prob

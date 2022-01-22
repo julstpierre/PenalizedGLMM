@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.8", "0", "0.1", "10000", "0.005", "ALL", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.5", "0.3", "0.1", "10000", "0.005", "ALL", ""] : ARGS
 
 # Fraction of variance due to polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -69,8 +69,8 @@ _maf.ALL = maf(@view(_1000G[dat.train, :]))
 # Compute range for MAFs among the 5 populations
 _maf.range = vec(maximum([_maf.EUR _maf.EAS _maf.AMR _maf.SAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.EAS _maf.AMR _maf.SAS _maf.AFR], dims = 2))
 
-# Select snps with MAF absolute deviation > 0.35 in the training data
-snps = findall(_maf.range .> 0.35)
+# Remove SNPs with MAF = 0.5
+snps = findall(_maf.ALL .!= 0.5)
 
 # Sample p candidate SNPs randomly accross genome, convert to additive model and impute
 snp_inds = sample(snps, p, replace = false, ordered = true)
@@ -118,7 +118,7 @@ sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
-s = sample(1:p, Integer(round(p*c)), replace = false)
+s = sample(1:p, weights(_maf.range[snp_inds] .> 0.25), Integer(round(p*c)), replace = false)
 W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 

@@ -103,7 +103,7 @@ XwithPCnew = [Array(covdf[testrowinds, varlistwithPC]) Gnew]
 pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
 betas.pglmmFPR = pglmm_β[:, pglmmFPR_ind]
 yhat.pglmmFPR = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], outtype = :prob) |> x-> vec(x)
-yhat.pglmmFPR2 = PenalizedGLMM.predict2(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], outtype = :prob) |> x-> vec(x)
+yhat.pglmmFPR2 = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], fixed_effects_only = true, outtype = :prob) |> x-> vec(x)
 
 # glmnet with no PCs
 glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
