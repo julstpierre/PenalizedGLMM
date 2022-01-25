@@ -104,7 +104,6 @@ for fpr in (0.005, 0.01)
         pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
         betas.pglmmFPR = pglmm_β[:, pglmmFPR_ind]
         yhat.pglmmFPR = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], outtype = :prob) |> x-> vec(x)
-        yhat.pglmmFPR2 = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], fixed_effects_only = true, outtype = :prob) |> x-> vec(x)
 
         # glmnet with no PCs
         glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
@@ -123,7 +122,7 @@ for fpr in (0.005, 0.01)
                   select(betas, :beta, :pglmmAIC, :pglmmBIC, :pglmmFPR, :cv_glmnet, :cv_glmnetPC, :glmnetFPR, :glmnetPCFPR)
         )
         CSV.write(datadir * "fitted_values_" * "fpr" * string(fpr) * ".txt", 
-                  select(yhat, :pglmmFPR, :pglmmFPR2, :glmnetFPR, :glmnetPCFPR)
+                  select(yhat, :pglmmFPR, :glmnetFPR, :glmnetPCFPR)
         )
 end
 

@@ -7,22 +7,25 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.5", "0.3", "0.1", "10000", "0.005", "ALL", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.5", "0.2", "0.2", "0.1", "10000", "0.005", "ALL", ""] : ARGS
 
-# Fraction of variance due to polygenic additive effect (logit scale)
+# Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
 
-# Fraction of residual variance due to unobserved shared environmental effect (logit scale)
-h2_d = parse(Float64, ARGS_[2])
+# Fraction of variance due to random polygenic additive effect (logit scale)
+h2_b = parse(Float64, ARGS_[2])
+
+# Fraction of variance due to unobserved shared environmental effect (logit scale)
+h2_d = parse(Float64, ARGS_[3])
 
 # Prevalence
-pi0 = parse(Float64, ARGS_[3])	
+pi0 = parse(Float64, ARGS_[4])	
 
 # Number of snps to randomly select accros genome
-p = parse(Int, ARGS_[4])
+p = parse(Int, ARGS_[5])
 
 # Percentage of causal SNPs
-c = parse(Float64, ARGS_[5])
+c = parse(Float64, ARGS_[6])
 
 # Number of snps to use for GRM estimation
 p_kin = 50000
@@ -59,13 +62,15 @@ _1000G = SnpArray("1000G/1000G.bed")
 
 # Compute MAF in training set for each SNP and in each Population
 _maf = DataFrame()
-_maf.EUR_AMR_SAS = maf(@view(_1000G[((dat.POP .== "EUR") .| (dat.POP .== "AMR") .| (dat.POP .== "SAS")) .& dat.train, :]))
+_maf.EUR = maf(@view(_1000G[(dat.POP .== "EUR") .& dat.train, :]))
+_maf.AMR = maf(@view(_1000G[(dat.POP .== "AMR") .& dat.train, :]))
+_maf.SAS = maf(@view(_1000G[(dat.POP .== "SAS") .& dat.train, :]))
 _maf.EAS = maf(@view(_1000G[(dat.POP .== "EAS") .& dat.train, :]))
 _maf.AFR = maf(@view(_1000G[(dat.POP .== "AFR") .& dat.train, :]))
 _maf.ALL = maf(@view(_1000G[dat.train, :]))
 
 # Compute range for MAFs among the 5 populations
-_maf.range = vec(maximum([_maf.EUR_AMR_SAS _maf.EAS  _maf.AFR], dims = 2) - minimum([_maf.EUR_AMR_SAS _maf.EAS _maf.AFR], dims = 2))
+_maf.range = vec(maximum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2))
 
 # Remove SNPs with MAF = 0.5
 snps = findall(_maf.ALL .!= 0.5)
@@ -76,14 +81,14 @@ G = convert(Matrix{Float64}, @view(_1000G[:, snp_inds]), impute = true)
 
 # Save filtered plink file
 rowmask, colmask = trues(n), [col in snp_inds for col in 1:size(_1000G, 2)]
-SnpArrays.filter("1000G/1000G", rowmask, colmask, des = ARGS_[7] * "geno")
+SnpArrays.filter("1000G/1000G", rowmask, colmask, des = ARGS_[8] * "geno")
 
-if ARGS_[6] == "ALL"
+if ARGS_[7] == "ALL"
     # Causal SNPs are included in the GRM
     grm_inds = sample(setdiff(snps, snp_inds), p_kin - p, replace = false, ordered = true) |>
                x -> [x; snp_inds] |>
                sort
-elseif ARGS_[6] == "NONE"
+elseif ARGS_[7] == "NONE"
     # Causal SNPs are excluded from the GRM
     grm_inds = sample(setdiff(snps, snp_inds), p_kin, replace = false, ordered = true)
 end
@@ -102,7 +107,7 @@ end
 GRM = posdef(GRM)
     
 # Save GRM in compressed file
-open(GzipCompressorStream, ARGS_[7] * "grm.txt.gz", "w") do stream
+open(GzipCompressorStream, ARGS_[8] * "grm.txt.gz", "w") do stream
     CSV.write(stream, DataFrame(GRM, :auto))
 end
 
@@ -111,22 +116,23 @@ end
 # ------------------------------------------------------------------------
 # Variance components
 sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10)
-sigma2_g = h2_d == 0 ? 1/2 * h2_g / (1 - h2_g - h2_d) * sigma2_e : h2_g / (1 - h2_g - h2_d) * sigma2_e
-sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
+sigma2_g = h2_g / (1 - h2_g - h2_b - h2_d) * sigma2_e
+sigma2_b = h2_b / (1 - h2_g - h2_b - h2_d) * sigma2_e
+sigma2_d = h2_d / (1 - h2_g - h2_b - h2_d) * sigma2_e
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
-s = sample(1:p, weights(_maf.range[snp_inds] .> 0.40), Integer(round(p*c)), replace = false)
+s = sample(1:p, Integer(round(p*c)), replace = false)
 W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
-# Simulate fixed effect for dichotomous environmental effect
-Z = (dat.POP .== ["SAS" "AFR"]) |>
+# Simulate fixed environmental effect
+Z = (dat.POP .== ["EUR" "AMR" "EAS" "SAS" "AFR"]) |>
     x -> x ./ std(x, dims=1, corrected = false)
-gamma = rand(Normal(0, sqrt(sigma2_d/2)), 2)
+gamma = rand(Normal(0, sqrt(sigma2_d/5)), 5)
 
 # Simulate random effects
-b = h2_d == 0 ? rand(MvNormal(sigma2_g * GRM)) : zeros(n)
+b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(n)
 
 # Standardize G
 mu = mean(G, dims = 1) 
@@ -151,17 +157,19 @@ println(combine(groupby(final_dat, :POP), :y => mean))
 # Write csv files
 #---------------------
 # CSV file containing covariates
-CSV.write(ARGS_[7] * "covariate.txt", final_dat)
+CSV.write(ARGS_[8] * "covariate.txt", final_dat)
 
 # Convert simulated effect for each SNP on original genotype scale
 df = SnpData("1000G/1000G").snp_info[snp_inds, [1,4]]
 df.beta = [ beta[i] / s[i] for i in 1:p ]
 
 # Save MAF for each SNP and in each Population
-df.mafEUR_AMR_SAS = _maf.EUR_AMR_SAS[snp_inds]
+df.mafEUR = _maf.EUR[snp_inds]
+df.mafAMR = _maf.AMR[snp_inds]
+df.mafSAS = _maf.SAS[snp_inds]
 df.mafEAS = _maf.EAS[snp_inds]
 df.mafAFR = _maf.AFR[snp_inds]
 df.mafrange = _maf.range[snp_inds]
 
 # CSV file containing MAFs and simulated effect for each SNP
-CSV.write(ARGS_[7] * "betas.txt", df)
+CSV.write(ARGS_[8] * "betas.txt", df)
