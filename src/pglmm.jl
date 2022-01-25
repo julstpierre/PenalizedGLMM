@@ -538,7 +538,7 @@ end
 function GIC(path::pglmmPath, criterion)
     
     # Obtain number of rows (n), predictors (p) and λ values (K)
-    n = size(path.residuals, 1)
+    n = size(path.y, 1)
     p, K = size(path.betas)
     df = [length(findall(x -> x != 0, vec(view(path.betas, :, k)))) for k in K]
 

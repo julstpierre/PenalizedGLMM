@@ -59,15 +59,13 @@ _1000G = SnpArray("1000G/1000G.bed")
 
 # Compute MAF in training set for each SNP and in each Population
 _maf = DataFrame()
-_maf.EUR = maf(@view(_1000G[(dat.POP .== "EUR") .& dat.train, :]))
+_maf.EUR_AMR_SAS = maf(@view(_1000G[((dat.POP .== "EUR") .| (dat.POP .== "AMR") .| (dat.POP .== "SAS")) .& dat.train, :]))
 _maf.EAS = maf(@view(_1000G[(dat.POP .== "EAS") .& dat.train, :]))
-_maf.AMR = maf(@view(_1000G[(dat.POP .== "AMR") .& dat.train, :]))
-_maf.SAS = maf(@view(_1000G[(dat.POP .== "SAS") .& dat.train, :]))
 _maf.AFR = maf(@view(_1000G[(dat.POP .== "AFR") .& dat.train, :]))
 _maf.ALL = maf(@view(_1000G[dat.train, :]))
 
 # Compute range for MAFs among the 5 populations
-_maf.range = vec(maximum([_maf.EUR _maf.EAS _maf.AMR _maf.SAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.EAS _maf.AMR _maf.SAS _maf.AFR], dims = 2))
+_maf.range = vec(maximum([_maf.EUR_AMR_SAS _maf.EAS  _maf.AFR], dims = 2) - minimum([_maf.EUR_AMR_SAS _maf.EAS _maf.AFR], dims = 2))
 
 # Remove SNPs with MAF = 0.5
 snps = findall(_maf.ALL .!= 0.5)
@@ -118,7 +116,7 @@ sigma2_d = h2_d / (1 - h2_g - h2_d) * sigma2_e
 
 # Simulate fixed effects for randomly sampled causal snps
 W = zeros(p)
-s = sample(1:p, weights(_maf.range[snp_inds] .> 0.25), Integer(round(p*c)), replace = false)
+s = sample(1:p, weights(_maf.range[snp_inds] .> 0.40), Integer(round(p*c)), replace = false)
 W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
@@ -160,10 +158,8 @@ df = SnpData("1000G/1000G").snp_info[snp_inds, [1,4]]
 df.beta = [ beta[i] / s[i] for i in 1:p ]
 
 # Save MAF for each SNP and in each Population
-df.mafEUR = _maf.EUR[snp_inds]
+df.mafEUR_AMR_SAS = _maf.EUR_AMR_SAS[snp_inds]
 df.mafEAS = _maf.EAS[snp_inds]
-df.mafAMR = _maf.AMR[snp_inds]
-df.mafSAS = _maf.SAS[snp_inds]
 df.mafAFR = _maf.AFR[snp_inds]
 df.mafrange = _maf.range[snp_inds]
 

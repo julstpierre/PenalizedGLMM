@@ -4,7 +4,7 @@ using PenalizedGLMM
 using GLM, GLMNet, SnpArrays, CSV, DataFrames, LinearAlgebra
 
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["", "0.01"] : ARGS
+const ARGS_ = isempty(ARGS) ? [""] : ARGS
 
 # Define directories where data is located
 const datadir = ARGS_[1]
@@ -90,44 +90,41 @@ betas.cv_glmnetPC = cv_glmnetPC_β
 #-----------------------------------------------------
 # False positive rate (FPR) for pglmm and glmnet
 #-----------------------------------------------------
-# Create DataFrame for fitted values
-yhat = DataFrame()
-fpr = parse(Float64, ARGS_[2])
+for fpr in (0.005, 0.01)
 
-# Create Arrays for test set
-Gnew = convert(Matrix{Float64}, @view(geno[testrowinds,:]), model = ADDITIVE_MODEL, impute = true)
-Xnew = [Array(covdf[testrowinds, varlist]) Gnew]
-XwithPCnew = [Array(covdf[testrowinds, varlistwithPC]) Gnew]
+        # Create DataFrame for predicted values
+        yhat = DataFrame()
 
-# pglmm
-pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
-betas.pglmmFPR = pglmm_β[:, pglmmFPR_ind]
-yhat.pglmmFPR = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], outtype = :prob) |> x-> vec(x)
-yhat.pglmmFPR2 = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], fixed_effects_only = true, outtype = :prob) |> x-> vec(x)
+        # Create Arrays for test set
+        Gnew = convert(Matrix{Float64}, @view(geno[testrowinds,:]), model = ADDITIVE_MODEL, impute = true)
+        Xnew = [Array(covdf[testrowinds, varlist]) Gnew]
+        XwithPCnew = [Array(covdf[testrowinds, varlistwithPC]) Gnew]
 
-# glmnet with no PCs
-glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
-betas.glmnetFPR = glmnet_β[:, glmnetFPR_ind]
-yhat.glmnetFPR = GLMNet.predict(fit_glmnet, Xnew, outtype = :prob)[:,glmnetFPR_ind]
+        # pglmm
+        pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
+        betas.pglmmFPR = pglmm_β[:, pglmmFPR_ind]
+        yhat.pglmmFPR = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], outtype = :prob) |> x-> vec(x)
+        yhat.pglmmFPR2 = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], fixed_effects_only = true, outtype = :prob) |> x-> vec(x)
 
-# glmnet with 10 PCs
-glmnetPCFPR_ind = findlast(sum((glmnetPC_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
-betas.glmnetPCFPR = glmnetPC_β[:, glmnetPCFPR_ind]
-yhat.glmnetPCFPR = GLMNet.predict(fit_glmnetPC, XwithPCnew, outtype = :prob)[:,glmnetPCFPR_ind]
+        # glmnet with no PCs
+        glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
+        betas.glmnetFPR = glmnet_β[:, glmnetFPR_ind]
+        yhat.glmnetFPR = GLMNet.predict(fit_glmnet, Xnew, outtype = :prob)[:,glmnetFPR_ind]
 
-#-----------------------
-# Save results
-#-----------------------
-CSV.write(datadir * "results.txt", select(betas, 
-                                            :beta, 
-                                            :pglmmAIC,
-                                            :pglmmBIC, 
-                                            :pglmmFPR,
-                                            :cv_glmnet,
-                                            :cv_glmnetPC, 
-                                            :glmnetFPR,
-                                            :glmnetPCFPR
-                                        )
-)
-CSV.write(datadir * "fitted_values.txt", select(yhat, :pglmmFPR, :pglmmFPR2, :glmnetFPR, :glmnetPCFPR))
+        # glmnet with 10 PCs
+        glmnetPCFPR_ind = findlast(sum((glmnetPC_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
+        betas.glmnetPCFPR = glmnetPC_β[:, glmnetPCFPR_ind]
+        yhat.glmnetPCFPR = GLMNet.predict(fit_glmnetPC, XwithPCnew, outtype = :prob)[:,glmnetPCFPR_ind]
+
+        #-----------------------
+        # Save results
+        #-----------------------
+        CSV.write(datadir * "results_" * "fpr" * string(fpr) * ".txt", 
+                  select(betas, :beta, :pglmmAIC, :pglmmBIC, :pglmmFPR, :cv_glmnet, :cv_glmnetPC, :glmnetFPR, :glmnetPCFPR)
+        )
+        CSV.write(datadir * "fitted_values_" * "fpr" * string(fpr) * ".txt", 
+                  select(yhat, :pglmmFPR, :pglmmFPR2, :glmnetFPR, :glmnetPCFPR)
+        )
+end
+
 CSV.write(datadir * "pglmm_tau.txt", DataFrame(tau = nullmodel.τ, h2 = nullmodel.τ / sum([nullmodel.τ' pi^2/3])))
