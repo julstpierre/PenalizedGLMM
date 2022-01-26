@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.5", "0.2", "0.2", "0.1", "10000", "0.005", "ALL", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.5", "0.2", "0.2", "0.1", "10000", "0.005", "5", "ALL", ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -27,13 +27,16 @@ p = parse(Int, ARGS_[5])
 # Percentage of causal SNPs
 c = parse(Float64, ARGS_[6])
 
+# Number of populations
+K = parse(Int, ARGS_[7])
+
 # Number of snps to use for GRM estimation
 p_kin = 50000
 
 # ------------------------------------------------------------------------
 # Load the covariate file
 # ------------------------------------------------------------------------
-# Read plink fam file
+# Read plink fam filedat
 samples = @chain CSV.read("1000G/1000G.fam", DataFrame; header = false) begin  
     @select!(:FID = :Column1, :IID = :Column2)
 end
@@ -44,7 +47,7 @@ dat = @chain CSV.read("1000G/covars.csv", DataFrame) begin
     @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE = round.(rand(Normal(50, 5), n), digits = 0))
 	rightjoin(samples, on = [:IID, :FID])
     @select!(:FID, :IID, :POP, :SEX, :AGE, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
-end	    	  
+end
 
 # Randomly sample subjects by POP for training and test sets
 grpdat = groupby(dat, :POP)
@@ -67,34 +70,43 @@ _maf.AMR = maf(@view(_1000G[(dat.POP .== "AMR") .& dat.train, :]))
 _maf.SAS = maf(@view(_1000G[(dat.POP .== "SAS") .& dat.train, :]))
 _maf.EAS = maf(@view(_1000G[(dat.POP .== "EAS") .& dat.train, :]))
 _maf.AFR = maf(@view(_1000G[(dat.POP .== "AFR") .& dat.train, :]))
-_maf.ALL = maf(@view(_1000G[dat.train, :]))
 
-# Compute range for MAFs among the 5 populations
-_maf.range = vec(maximum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2))
+# Compute range for MAFs among the K populations
+if K == 2
+    inds = (dat.POP .== "EUR") .| (dat.POP .== "AFR")
+    n = sum(inds)
+    _maf.ALL = maf(@view(_1000G[inds .& dat.train, :]))
+    _maf.range = abs.(_maf.EUR - _maf.AFR)
+    dat = dat[inds,:]
+else
+    inds = trues(n)
+    _maf.ALL = maf(@view(_1000G[dat.train, :]))
+    _maf.range = vec(maximum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2))
+end
 
 # Remove SNPs with MAF = 0.5
 snps = findall(_maf.ALL .!= 0.5)
 
 # Sample p candidate SNPs randomly accross genome, convert to additive model and impute
 snp_inds = sample(snps, p, replace = false, ordered = true)
-G = convert(Matrix{Float64}, @view(_1000G[:, snp_inds]), impute = true)
+G = convert(Matrix{Float64}, @view(_1000G[inds, snp_inds]), impute = true)
 
 # Save filtered plink file
-rowmask, colmask = trues(n), [col in snp_inds for col in 1:size(_1000G, 2)]
-SnpArrays.filter("1000G/1000G", rowmask, colmask, des = ARGS_[8] * "geno")
+rowmask, colmask = inds, [col in snp_inds for col in 1:size(_1000G, 2)]
+SnpArrays.filter("1000G/1000G", rowmask, colmask, des = ARGS_[9] * "geno")
 
-if ARGS_[7] == "ALL"
+if ARGS_[8] == "ALL"
     # Causal SNPs are included in the GRM
     grm_inds = sample(setdiff(snps, snp_inds), p_kin - p, replace = false, ordered = true) |>
                x -> [x; snp_inds] |>
                sort
-elseif ARGS_[7] == "NONE"
+elseif ARGS_[8] == "NONE"
     # Causal SNPs are excluded from the GRM
     grm_inds = sample(setdiff(snps, snp_inds), p_kin, replace = false, ordered = true)
 end
 
 # Estimated GRM
-GRM = 2 * grm(_1000G, cinds = grm_inds)
+GRM = 2 * grm(_1000G, cinds = grm_inds)[inds, inds]
 
 # Make sure GRM is posdef
 function posdef(K, n = size(K, 1), xi = 1e-4)
@@ -107,7 +119,7 @@ end
 GRM = posdef(GRM)
     
 # Save GRM in compressed file
-open(GzipCompressorStream, ARGS_[8] * "grm.txt.gz", "w") do stream
+open(GzipCompressorStream, ARGS_[9] * "grm.txt.gz", "w") do stream
     CSV.write(stream, DataFrame(GRM, :auto))
 end
 
@@ -127,9 +139,14 @@ W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate fixed environmental effect
-Z = (dat.POP .== ["EUR" "AMR" "EAS" "SAS" "AFR"]) |>
-    x -> x ./ std(x, dims=1, corrected = false)
-gamma = rand(Normal(0, sqrt(sigma2_d/5)), 5)
+if K == 2
+    Z = (dat.POP .== ["EUR" "AFR"]) |>
+        x -> x ./ std(x, dims=1, corrected = false)
+else
+    Z = (dat.POP .== ["EUR" "AMR" "EAS" "SAS" "AFR"]) |>
+        x -> x ./ std(x, dims=1, corrected = false)
+end
+gamma = rand(Normal(0, sqrt(sigma2_d/K)), K)
 
 # Simulate random effects
 b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(n)
@@ -157,7 +174,7 @@ println(combine(groupby(final_dat, :POP), :y => mean))
 # Write csv files
 #---------------------
 # CSV file containing covariates
-CSV.write(ARGS_[8] * "covariate.txt", final_dat)
+CSV.write(ARGS_[9] * "covariate.txt", final_dat)
 
 # Convert simulated effect for each SNP on original genotype scale
 df = SnpData("1000G/1000G").snp_info[snp_inds, [1,4]]
@@ -172,4 +189,4 @@ df.mafAFR = _maf.AFR[snp_inds]
 df.mafrange = _maf.range[snp_inds]
 
 # CSV file containing MAFs and simulated effect for each SNP
-CSV.write(ARGS_[8] * "betas.txt", df)
+CSV.write(ARGS_[9] * "betas.txt", df)
