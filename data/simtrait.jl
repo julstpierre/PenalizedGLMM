@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.5", "0.2", "0.2", "0.1", "10000", "0.005", "5", "ALL", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.5", "0.2", "0.2", "0.1", "10000", "0.005", "2", "ALL", ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -36,15 +36,14 @@ p_kin = 50000
 # ------------------------------------------------------------------------
 # Load the covariate file
 # ------------------------------------------------------------------------
-# Read plink fam filedat
+# Read plink fam file
 samples = @chain CSV.read("1000G/1000G.fam", DataFrame; header = false) begin  
     @select!(:FID = :Column1, :IID = :Column2)
 end
-n = size(samples, 1)
 
 # Combine into a DataFrame
 dat = @chain CSV.read("1000G/covars.csv", DataFrame) begin
-    @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE = round.(rand(Normal(50, 5), n), digits = 0))
+    @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE = round.(rand(Normal(50, 5), length(:ind)), digits = 0))
 	rightjoin(samples, on = [:IID, :FID])
     @select!(:FID, :IID, :POP, :SEX, :AGE, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
 end
@@ -55,7 +54,7 @@ train_ids = [sample(grpdat[i].IID, Int(ceil(nrow(grpdat[i]) * 0.80)); replace = 
                 x -> reduce(vcat, x)
 
 # Add indicator variable for training subjects
-dat.train = [dat.IID[i] in train_ids for i in 1:n]
+dat.train = [dat.IID[i] in train_ids for i in 1:size(dat, 1)]
 
 #-------------------------------------------------------------------------
 # Load genotype Data
@@ -74,18 +73,16 @@ _maf.AFR = maf(@view(_1000G[(dat.POP .== "AFR") .& dat.train, :]))
 # Compute range for MAFs among the K populations
 if K == 2
     inds = (dat.POP .== "EUR") .| (dat.POP .== "AFR")
-    n = sum(inds)
-    _maf.ALL = maf(@view(_1000G[inds .& dat.train, :]))
     _maf.range = abs.(_maf.EUR - _maf.AFR)
-    dat = dat[inds,:]
 else
     inds = trues(n)
-    _maf.ALL = maf(@view(_1000G[dat.train, :]))
     _maf.range = vec(maximum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2))
 end
 
-# Remove SNPs with MAF = 0.5
-snps = findall(_maf.ALL .!= 0.5)
+# Remove SNPs with MAF = 0 or 0.5 either in the train set or in the train+test set
+_maf.ALL = maf(@view(_1000G[inds, :]))
+_maf.ALLtrain = maf(@view(_1000G[inds .& dat.train, :]))
+snps = findall((_maf.ALL .!= 0) .& (_maf.ALL .!= 0.5) .& (_maf.ALLtrain .!= 0) .& (_maf.ALLtrain .!= 0.5))
 
 # Sample p candidate SNPs randomly accross genome, convert to additive model and impute
 snp_inds = sample(snps, p, replace = false, ordered = true)
@@ -126,6 +123,9 @@ end
 # ------------------------------------------------------------------------
 # Simulate phenotypes
 # ------------------------------------------------------------------------
+# Keep only individuals belonging to K ancestries
+dat = dat[inds,:]
+
 # Variance components
 sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10)
 sigma2_g = h2_g / (1 - h2_g - h2_b - h2_d) * sigma2_e
@@ -149,7 +149,7 @@ end
 gamma = rand(Normal(0, sqrt(sigma2_d/K)), K)
 
 # Simulate random effects
-b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(n)
+b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
 
 # Standardize G
 mu = mean(G, dims = 1) 
