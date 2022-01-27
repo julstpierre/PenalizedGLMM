@@ -90,7 +90,7 @@ betas.cv_glmnetPC = cv_glmnetPC_β
 #-----------------------------------------------------
 # False positive rate (FPR) for pglmm and glmnet
 #-----------------------------------------------------
-for fpr in (0.005, 0.01)
+for fpr in (0.0, 0.005, 0.01, 0.02, 0.05)
 
         # Create DataFrame for predicted values
         yhat = DataFrame()
@@ -101,17 +101,17 @@ for fpr in (0.005, 0.01)
         XwithPCnew = [Array(covdf[testrowinds, varlistwithPC]) Gnew]
 
         # pglmm
-        pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
+        pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .<= fpr)[2]
         betas.pglmmFPR = pglmm_β[:, pglmmFPR_ind]
         yhat.pglmmFPR = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmFPR_ind], outtype = :prob) |> x-> vec(x)
 
         # glmnet with no PCs
-        glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
+        glmnetFPR_ind = findlast(sum((glmnet_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .<= fpr)[2]
         betas.glmnetFPR = glmnet_β[:, glmnetFPR_ind]
         yhat.glmnetFPR = GLMNet.predict(fit_glmnet, Xnew, outtype = :prob)[:,glmnetFPR_ind]
 
         # glmnet with 10 PCs
-        glmnetPCFPR_ind = findlast(sum((glmnetPC_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .< fpr)[2]
+        glmnetPCFPR_ind = findlast(sum((glmnetPC_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .<= fpr)[2]
         betas.glmnetPCFPR = glmnetPC_β[:, glmnetPCFPR_ind]
         yhat.glmnetPCFPR = GLMNet.predict(fit_glmnetPC, XwithPCnew, outtype = :prob)[:,glmnetPCFPR_ind]
 
