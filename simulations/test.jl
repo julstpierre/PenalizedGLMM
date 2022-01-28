@@ -30,8 +30,11 @@ modelfit = pglmm(nullmodel, plinkfile, geneticrowinds = trainrowinds, verbose = 
 pglmm_β = modelfit.betas[3:end,:]
 
 # Find λ that gives minimum GIC
-pglmmAIC_β = PenalizedGLMM.GIC(modelfit, :AIC)[3:end]
-pglmmBIC_β = PenalizedGLMM.GIC(modelfit, :BIC)[3:end]
+pglmmAIC = PenalizedGLMM.GIC(modelfit, :AIC)
+pglmmBIC = PenalizedGLMM.GIC(modelfit, :BIC)
+
+pglmmAIC_β  = pglmm_β[:,pglmmAIC]
+pglmmBIC_β  = pglmm_β[:,pglmmBIC]
 
 #----------------------------
 # GLMNet
@@ -49,7 +52,7 @@ y = convert(Matrix{Float64}, [covdf.y .== 0 covdf.y .== 1]) |>
 # Lasso with no PC
 #----------------------------
 # Combine covariate with genetic predictors
-varlist = ["AGE", "SEX"]
+varlist = ["SEX", "AGE"]
 X = [Array(covdf[trainrowinds, varlist]) G]
 
 # Fit a penalized logistic model using GLMNet with no PCs
@@ -64,7 +67,7 @@ cv_glmnet_β = cv_glmnet.path.betas[(length(varlist) + 1):end, argmin(cv_glmnet.
 # Lasso with 10 PCs
 #----------------------------
 # Combine covariate with genetic predictors
-varlistwithPC = ["AGE", "SEX", "PC1","PC2","PC3","PC4","PC5","PC6","PC7","PC8","PC9","PC10"]
+varlistwithPC = ["SEX","AGE","PC1","PC2","PC3","PC4","PC5","PC6","PC7","PC8","PC9","PC10"]
 XwithPC = [Array(covdf[trainrowinds, varlistwithPC]) G]
 
 # Fit a penalized logistic model using GLMNet with 10 PCs
