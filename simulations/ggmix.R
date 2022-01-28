@@ -64,9 +64,9 @@ ggmixBIC_beta <- 1/s * coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","A
 true_betas = read.csv("betas.txt")$beta
 ggmix_betas = 1/s * fit_ggmix$beta[-(1:ncol(Xtrain)),]
 
-for (fpr in c(0.005, 0.01)){
+for (fpr in c(0, 0.005, 0.01, 0.02, 0.05)){
   # False positive rate (FPR)
-  v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) < fpr
+  v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) <= fpr
   ggmixFPR_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
   
   # Predict phenotype on test set

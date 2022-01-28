@@ -75,7 +75,7 @@ if K == 2
     inds = (dat.POP .== "EUR") .| (dat.POP .== "AFR")
     _maf.range = abs.(_maf.EUR - _maf.AFR)
 else
-    inds = trues(n)
+    inds = trues(size(dat, 1))
     _maf.range = vec(maximum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2) - minimum([_maf.EUR _maf.AMR _maf.SAS _maf.EAS _maf.AFR], dims = 2))
 end
 
