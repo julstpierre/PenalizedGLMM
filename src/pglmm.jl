@@ -556,5 +556,5 @@ function GIC(path::pglmmPath, criterion)
     GIC = dev .+ a_n * df
 
     # Return betas with lowest GIC value
-    return(path.betas[:, argmin(GIC)])
+    return(argmin(GIC))
 end
