@@ -540,7 +540,7 @@ function GIC(path::pglmmPath, criterion)
     # Obtain number of rows (n), predictors (p) and λ values (K)
     n = size(path.y, 1)
     p, K = size(path.betas)
-    df = [length(findall(x -> x != 0, vec(view(path.betas, :, k)))) for k in K]
+    df = [length(findall(x -> x != 0, vec(view(path.betas, :, k)))) for k in 1:K]
 
     # Define GIC criterion
     if criterion == :BIC

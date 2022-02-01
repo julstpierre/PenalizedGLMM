@@ -15,9 +15,8 @@ library(data.table)
 pheno.cov <- read.table("covariate.txt", sep=",", header = T) %>%
   mutate(ID=paste(FID,":",IID,sep=""))
 
-n <- nrow(pheno.cov)	
 trainrowinds = which(pheno.cov$train == "true")
-
+n <- length(trainrowinds)
 #=======================================================================
 # Load the genotype data
 #=======================================================================
@@ -64,18 +63,26 @@ ggmixBIC_beta <- 1/s * coef(bic)[setdiff(rownames(coef(bic)), c("(Intercept)","A
 true_betas = read.csv("betas.txt")$beta
 ggmix_betas = 1/s * fit_ggmix$beta[-(1:ncol(Xtrain)),]
 
-for (fpr in c(0, 0.005, 0.01, 0.02, 0.05)){
-  # False positive rate (FPR)
+# Predict phenotype on test set
+Xtest <- pheno.cov[-trainrowinds, c("AGE","SEX")]
+Gtest <- G[-trainrowinds,]
+ggmixAIC_yhat <- predict(aic, as.matrix(cbind(Xtest, Gtest)), covariance = GRM[-trainrowinds, trainrowinds])
+ggmixBIC_yhat <- predict(bic, as.matrix(cbind(Xtest, Gtest)), covariance = GRM[-trainrowinds, trainrowinds])
+
+#Save results
+write.csv(cbind(ggmixAIC = ggmixAIC_beta, ggmixBIC = ggmixBIC_beta), "ggmix_results.txt", quote=FALSE, row.names = FALSE)
+write.csv(cbind(ggmixAIC = ggmixAIC_yhat, ggmixBIC = ggmixBIC_yhat), "ggmix_fitted_values.txt", quote=FALSE, row.names = FALSE)
+write.csv(t(coef(aic, type = "nonzero")[c("eta", "sigma2"),]), "ggmix_tau.txt", quote=FALSE, row.names = FALSE)
+
+# False positive rate (FPR)
+for (fpr in seq(0,0.01,0.001)){
+  
+  #Predict y at a given FPR
   v <- apply((ggmix_betas != 0) & (true_betas == 0), 2, sum)/sum(true_betas == 0) <= fpr
   ggmixFPR_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
-  
-  # Predict phenotype on test set
-  Xtest <- pheno.cov[-trainrowinds, c("AGE","SEX")]
-  Gtest <- G[-trainrowinds,]
   ggmixFPR_yhat <- predict(fit_ggmix, as.matrix(cbind(Xtest, Gtest)), covariance = GRM[-trainrowinds, trainrowinds])[,tapply(seq_along(v), v, max)["TRUE"]]
   
   #Save results
-  write.csv(cbind(ggmixAIC = ggmixAIC_beta, ggmixBIC = ggmixBIC_beta, ggmixFPR = ggmixFPR_beta), paste0("ggmix_results_fpr", fpr, ".txt"), quote=FALSE, row.names = FALSE)
+  write.csv(cbind(ggmixFPR = ggmixFPR_beta), paste0("ggmix_results_fpr", fpr, ".txt"), quote=FALSE, row.names = FALSE)
   write.csv(cbind(ggmixFPR = ggmixFPR_yhat), paste0("ggmix_fitted_values_fpr", fpr, ".txt"), quote=FALSE, row.names = FALSE)
 }
-write.csv(t(coef(aic, type = "nonzero")[c("eta", "sigma2"),]), "ggmix_tau.txt", quote=FALSE, row.names = FALSE)

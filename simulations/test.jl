@@ -90,18 +90,34 @@ betas.pglmmBIC = pglmmBIC_β
 betas.cv_glmnet = cv_glmnet_β
 betas.cv_glmnetPC = cv_glmnetPC_β
 
+# Create DataFrame for predicted values
+yhat = DataFrame()
+
+# Create Arrays for test set
+Gnew = convert(Matrix{Float64}, @view(geno[testrowinds,:]), model = ADDITIVE_MODEL, impute = true)
+Xnew = [Array(covdf[testrowinds, varlist]) Gnew]
+XwithPCnew = [Array(covdf[testrowinds, varlistwithPC]) Gnew]
+
+# pglmm (AIC)
+yhat.pglmmAIC = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmAIC], outtype = :prob) |> x-> vec(x)
+yhat.pglmmBIC = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmBIC], outtype = :prob) |> x-> vec(x)
+yhat.cv_glmnet = GLMNet.predict(fit_glmnet, Xnew, outtype = :prob)[:,argmin(cv_glmnet.meanloss)]
+yhat.cv_glmnetPC = GLMNet.predict(fit_glmnetPC, XwithPCnew, outtype = :prob)[:,argmin(cv_glmnetPC.meanloss)]
+
+#-----------------------
+# Save results
+#-----------------------
+CSV.write(datadir * "results.txt", 
+                select(betas, :beta, :pglmmAIC, :pglmmBIC, cv_glmnet, cv_glmnetPC)
+)
+CSV.write(datadir * "fitted_values.txt", 
+                select(yhat, :pglmmAIC, :pglmmBIC, cv_glmnet, cv_glmnetPC)
+)
+
 #-----------------------------------------------------
 # False positive rate (FPR) for pglmm and glmnet
 #-----------------------------------------------------
-for fpr in (0.0, 0.005, 0.01, 0.02, 0.05)
-
-        # Create DataFrame for predicted values
-        yhat = DataFrame()
-
-        # Create Arrays for test set
-        Gnew = convert(Matrix{Float64}, @view(geno[testrowinds,:]), model = ADDITIVE_MODEL, impute = true)
-        Xnew = [Array(covdf[testrowinds, varlist]) Gnew]
-        XwithPCnew = [Array(covdf[testrowinds, varlistwithPC]) Gnew]
+for fpr in [0:0.001:0.01;]
 
         # pglmm
         pglmmFPR_ind = findlast(sum((pglmm_β .!= 0) .& (betas.beta .== 0), dims = 1) / sum(betas.beta .== 0) .<= fpr)[2]
@@ -122,7 +138,7 @@ for fpr in (0.0, 0.005, 0.01, 0.02, 0.05)
         # Save results
         #-----------------------
         CSV.write(datadir * "results_" * "fpr" * string(fpr) * ".txt", 
-                  select(betas, :beta, :pglmmAIC, :pglmmBIC, :pglmmFPR, :cv_glmnet, :cv_glmnetPC, :glmnetFPR, :glmnetPCFPR)
+                  select(betas, :beta, :pglmmFPR, :glmnetFPR, :glmnetPCFPR)
         )
         CSV.write(datadir * "fitted_values_" * "fpr" * string(fpr) * ".txt", 
                   select(yhat, :pglmmFPR, :glmnetFPR, :glmnetPCFPR)
