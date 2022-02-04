@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.5", "0.2", "0.2", "0.1", "10000", "0.005", "2", "ALL", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.5", "0.2", "0.2", "0.1", "10000", "0.005", "5", "ALL", ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -45,7 +45,7 @@ end
 dat = @chain CSV.read("1000G/covars.csv", DataFrame) begin
     @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE = round.(rand(Normal(50, 5), length(:ind)), digits = 0))
 	rightjoin(samples, on = [:IID, :FID])
-    @select!(:FID, :IID, :POP, :SEX, :AGE, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
+    @select!(:FID, :IID, :POP, :SEX, :AGE)
 end
 
 # Randomly sample subjects by POP for training and test sets
@@ -120,11 +120,27 @@ open(GzipCompressorStream, ARGS_[9] * "grm.txt.gz", "w") do stream
     CSV.write(stream, DataFrame(GRM, :auto))
 end
 
+#--------------------------------------------------------------------
+# Calculate PCs on the training subjects and project them on test set
+#--------------------------------------------------------------------
+# Compute singular value decomposition on training set only
+X_grm = convert(Matrix{Float64}, @view(_1000G[:, grm_inds]), impute = true, center = true, scale = true)
+U, S, V = svd(X_grm[inds .& dat.train,:])
+
+# PCs for training set are columns of U
+PCs = Array{Float64}(undef, length(inds), 10)
+PCs[inds .& dat.train,:] = U[:,1:10]
+
+# PCs for test set are obtained as projection from training PCs
+PCs[inds .& (dat.train .!= 1),:] = (X_grm[inds .& (dat.train .!= 1),:] * V * inv(Diagonal(S)))[:,1:10]
+
 # ------------------------------------------------------------------------
 # Simulate phenotypes
 # ------------------------------------------------------------------------
 # Keep only individuals belonging to K ancestries
 dat = dat[inds,:]
+dat.PC1 = PCs[inds,1]; dat.PC3 = PCs[inds,3]; dat.PC3 = PCs[inds,3]; dat.PC4 = PCs[inds,4]; dat.PC5 = PCs[inds,5];
+dat.PC6 = PCs[inds,6]; dat.PC7 = PCs[inds,7]; dat.PC8 = PCs[inds,8]; dat.PC9 = PCs[inds,9]; dat.PC10 = PCs[inds,10];
 
 # Variance components
 sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10)
