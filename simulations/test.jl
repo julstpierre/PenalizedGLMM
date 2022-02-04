@@ -108,10 +108,10 @@ yhat.cv_glmnetPC = GLMNet.predict(fit_glmnetPC, XwithPCnew, outtype = :prob)[:,a
 # Save results
 #-----------------------
 CSV.write(datadir * "results.txt", 
-                select(betas, :beta, :pglmmAIC, :pglmmBIC, cv_glmnet, cv_glmnetPC)
+                select(betas, :beta, :pglmmAIC, :pglmmBIC, :cv_glmnet, :cv_glmnetPC)
 )
 CSV.write(datadir * "fitted_values.txt", 
-                select(yhat, :pglmmAIC, :pglmmBIC, cv_glmnet, cv_glmnetPC)
+                select(yhat, :pglmmAIC, :pglmmBIC, :cv_glmnet, :cv_glmnetPC)
 )
 
 #-----------------------------------------------------
