@@ -6,3 +6,4 @@ data/geno.bed
 data/geno.bim
 data/geno.fam
 data/grm.txt.gz
+simulations/results/

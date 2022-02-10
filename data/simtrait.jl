@@ -139,7 +139,7 @@ PCs[inds .& (dat.train .!= 1),:] = (X_grm[inds .& (dat.train .!= 1),:] * V * inv
 # ------------------------------------------------------------------------
 # Keep only individuals belonging to K ancestries
 dat = dat[inds,:]
-dat.PC1 = PCs[inds,1]; dat.PC3 = PCs[inds,3]; dat.PC3 = PCs[inds,3]; dat.PC4 = PCs[inds,4]; dat.PC5 = PCs[inds,5];
+dat.PC1 = PCs[inds,1]; dat.PC2 = PCs[inds,2]; dat.PC3 = PCs[inds,3]; dat.PC4 = PCs[inds,4]; dat.PC5 = PCs[inds,5];
 dat.PC6 = PCs[inds,6]; dat.PC7 = PCs[inds,7]; dat.PC8 = PCs[inds,8]; dat.PC9 = PCs[inds,9]; dat.PC10 = PCs[inds,10];
 
 # Variance components

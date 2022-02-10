@@ -46,7 +46,8 @@ function pglmm(
     @assert n == length(nullmodel.y) "Genotype matrix and y must have same number of rows"
 
     # standardize non-genetic covariates and genetic predictors
-    X, muX, sX = standardizeX(nullmodel.X, standardize_X, all(nullmodel.X[:,1] .== 1))
+    intercept = all(nullmodel.X[:,1] .== 1)
+    X, muX, sX = standardizeX(nullmodel.X, standardize_X, intercept)
     G, muG, sG = standardizeX(G, standardize_G)
 
     # Initialize β and penalty factors
@@ -77,36 +78,43 @@ function pglmm(
     Ut = Matrix(U')
 
     # Transform X and Y
-    Xstar = Ut * [X  G]
-    Ystar = Ut * Ytilde
+	Xstar = Array{Float64}(undef, n, k + p)
+	Ystar = Array{Float64}(undef, n)
+	mul!(Xstar, Ut, [X  G])
+	mul!(Ystar, Ut, Ytilde)
 
     # Define weighted sum of squares
-    wXstar = w_n .* Xstar
-    Swxx = vec(sum(wXstar .* Xstar, dims = 1))
+	wXstar = Array{Float64}(undef, n, k + p)
+    Swxx = vec(zeros(size(wXstar, 2), 1))
+    mul!(wXstar, Diagonal(w_n), Xstar)
+    col2sum!(Swxx, wXstar, Xstar)
 
     # Initialize residuals
     r = Ystar - view(Xstar, :, β.nzind) * β.nzval
 
     # Sequence of λ
-    λ_seq, K = lambda_seq(Ystar, Xstar; weights = w_n, penalty_factor = p_f)
+    λ_seq, K = lambda_seq(Ystar, Xstar; weights = w_n, p_f = p_f)
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, earlystop)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, intercept)
 
     # Return coefficients on original scale
-    if !isempty(sX)
-        path.betas[2:k,:] = lmul!(inv(Diagonal(vec(sX))), path.betas[2:k,:])
-        path.betas[1,:] -=  vec(muX * path.betas[2:k,:])
-    end
-
-    if !isempty(sG)
+    if !isempty(sX) & !isempty(sG)
+        lmul!(inv(Diagonal(vec([sX; sG]))), path.betas)
+        path.a0 .-= vec([muX muG] * path.betas)
+    elseif !isempty(sX)
+        k = k - intercept
+        path.betas[1:k,:] = lmul!(inv(Diagonal(vec(sX))), path.betas[1:k,:])
+        path.a0 .-=  vec(muX * path.betas[1:k,:])
+    elseif !isempty(sG)
+        k = k - intercept
         path.betas[(k+1):end,:] = lmul!(inv(Diagonal(vec(sG))), path.betas[(k+1):end,:])
-        path.betas[1,:] -=  vec(muG * path.betas[(k+1):end,:])
+        path.a0 .-=  vec(muG * path.betas[(k+1):end,:])
     end
 
     # Return lasso path
-    pglmmPath(nullmodel.family, path.betas[1,:], path.betas[2:end,:], nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv)
+    pglmmPath(nullmodel.family, path.a0, path.betas, nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -134,7 +142,8 @@ function pglmm_fit(
     irwls_tol::Float64,
     irwls_maxiter::Int64,
     criterion,
-    earlystop::Bool  
+    earlystop::Bool,
+    intercept::Bool
 )
     # Initialize array to store output for each λ
     sizeX = size(Xstar)
@@ -207,7 +216,11 @@ function pglmm_fit(
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0)) || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+    if intercept
+        return(a0 = view(betas, 1, 1:i), betas = view(betas, 2:sizeX[2], 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+    else
+        return(a0 = zeros(i), betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+    end
 end
 
 function pglmm_fit(
@@ -229,13 +242,15 @@ function pglmm_fit(
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
-    earlystop::Bool  
+    earlystop::Bool,
+    intercept::Bool  
 )
     # Initialize array to store output for each λ
-    betas = zeros(size(Xstar, 2), K)
+    sizeX = size(Xstar)
+    betas = zeros(sizeX[2], K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    residuals = zeros(size(Xstar, 1), K)
+    residuals = zeros(sizeX[1], K)
 
     # Loop through sequence of λ
     i = 0
@@ -268,7 +283,11 @@ function pglmm_fit(
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0))|| pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(residuals, :, 1:i))
+    if intercept
+        return(a0 = view(betas, 1, 1:i), betas = view(betas, 2:sizeX[2], 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+    else
+        return(a0 = zeros(i), betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+    end
 end
 
 # Function to perform coordinate descent with a lasso penalty
@@ -407,23 +426,32 @@ function lambda_seq(
     y::Vector{Float64}, 
     X::Matrix{Float64}; 
     weights::Vector{Float64},
-    penalty_factor::Vector{Float64},
+    p_f::Vector{Float64},
     K::Integer = 100
     )
 
-    # Define weighted outcome
-    wY = weights .* y
-
-    # Define matrix of penalised predictors
-    X = (X .* penalty_factor')
-
     λ_min_ratio = (length(y) < size(X, 2) ? 1e-2 : 1e-4)
-    λ_max = maximum(abs.((X' * wY)))
+    λ_max = lambda_max(X, y, weights, p_f)
     λ_min = λ_max * λ_min_ratio
     λ_step = log(λ_min_ratio)/(K - 1)
     λ_seq = exp.(collect(log(λ_max):λ_step:log(λ_min)))
     
     return(λ_seq, length(λ_seq))
+end
+
+# Function to compute λ_max
+function lambda_max(X::AbstractMatrix{T}, y::AbstractVector{T}, weights::AbstractVector{T}, p_f::AbstractVector{T}) where T
+
+    wY = weights .* y
+    λ_max = zero(T)
+    seq = findall(x-> x .!= 0, p_f)
+    for j in seq
+        x = abs(dot(view(X, :,j), wY))
+        if x > λ_max
+            λ_max = x
+        end
+    end
+    return(λ_max)
 end
 
 # Define Softtreshold function
@@ -477,9 +505,17 @@ end
 function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool = false) where T
     if standardize
         mu = intercept ? mean(X[:,2:end], dims = 1) : mean(X, dims = 1) 
-        s = intercept ? std(X[:,2:end], dims = 1, corrected = false) : std(X, dims = 1, corrected = false)
+        s = intercept ? vec(std(X[:,2:end], dims = 1, corrected = false)) : vec(std(X, dims = 1, corrected = false))
         @assert all(s .!= 0) "One predictor is a constant, hence it cannot be standardize."
-        X = intercept ? [X[:,1] (X[:,2:end] .- mu) ./ s] : (X .- mu) ./ s
+        if intercept
+			for j in 2:size(X,2), i in 1:size(X, 1) 
+                @inbounds X[i,j] = (X[i,j] .- mu[j-1]) / s[j-1]
+            end
+		else
+			for j in 1:size(X,2), i in 1:size(X, 1) 
+                @inbounds X[i,j] = (X[i,j] .- mu[j]) / s[j]
+            end
+		end
     else
         mu = []; s = []
     end
@@ -557,4 +593,12 @@ function GIC(path::pglmmPath, criterion)
 
     # Return betas with lowest GIC value
     return(argmin(GIC))
+end
+
+# Function to compute product of matrix columns
+function col2sum!(Swxx::AbstractVector, wXstar::AbstractMatrix{T}, Xstar::AbstractMatrix{T}) where T
+    for j in 1:size(wXstar, 2), i in 1:size(wXstar, 1)
+        @inbounds Swxx[j] += wXstar[i,j] * Xstar[i,j]
+    end
+    return(Swxx)
 end
