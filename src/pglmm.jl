@@ -27,7 +27,7 @@ function pglmm(
     verbose::Bool = false,
     standardize_X::Bool = true,
     standardize_G::Bool = true,
-    standardize_weight::Bool = false,
+    standardize_weights::Bool = false,
     criterion = :coef,
     earlystop::Bool = true,
     kwargs...
@@ -58,8 +58,8 @@ function pglmm(
     eigvals, U = eigen(nullmodel.τV)
 
     # Define (normalized) weights for each observation
-    w = weight(nullmodel.family, eigvals, nullmodel.φ)
-    w_n = standardize_weight ? w / sum(w) : w
+    w = eigenweights(nullmodel.family, eigvals, nullmodel.φ)
+    w_n = standardize_weights ? w / sum(w) : w
 
     # Initialize working variable and mean vector and initialize null deviance 
     # based on model with intercept only and no random effects
@@ -83,12 +83,6 @@ function pglmm(
 	mul!(Xstar, Ut, [X  G])
 	mul!(Ystar, Ut, Ytilde)
 
-    # Define weighted sum of squares
-	wXstar = Array{Float64}(undef, n, k + p)
-    Swxx = vec(zeros(size(wXstar, 2), 1))
-    mul!(wXstar, Diagonal(w_n), Xstar)
-    col2sum!(Swxx, wXstar, Xstar)
-
     # Initialize residuals
     r = Ystar - view(Xstar, :, β.nzind) * β.nzval
 
@@ -97,7 +91,7 @@ function pglmm(
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, wXstar, Swxx, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, intercept)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, intercept)
 
     # Return coefficients on original scale
     if !isempty(sX) & !isempty(sG)
@@ -136,8 +130,6 @@ function pglmm_fit(
     K::Int64,
     UD_inv::Matrix{Float64},
     Ut::Matrix{Float64},
-    wXstar::Matrix{Float64},
-    Swxx::Vector{Float64},
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
@@ -171,7 +163,7 @@ function pglmm_fit(
         for irwls in 1:irwls_maxiter
 
             # Run coordinate descent inner loop to update β and r
-            β, r = cd_lasso(r, Xstar, wXstar, Swxx; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, p_f = p_f, λ = λ, criterion = criterion)
+            β, r = cd_lasso(r, Xstar; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, p_f = p_f, λ = λ, criterion = criterion)
 
             # Update μ
             μ = updateμ(r, Ytilde, UD_inv)
@@ -237,8 +229,6 @@ function pglmm_fit(
     K::Int64,
     UD_inv::Matrix{Float64},
     Ut::Matrix{Float64},
-    wXstar::Matrix{Float64},
-    Swxx::Vector{Float64},
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
@@ -268,7 +258,7 @@ function pglmm_fit(
         last_dev_ratio = dev_ratio
 
         # Run coordinate descent inner loop to update β and r
-        β, r = cd_lasso(r, Xstar, wXstar, Swxx; family = Normal(), β = β, p_f = p_f, λ = λ)
+        β, r = cd_lasso(r, Xstar; family = Normal(), β = β, p_f = p_f, λ = λ)
 
         # Update deviance
         dev = NormalDeviance(r, w)
@@ -294,9 +284,7 @@ end
 function cd_lasso(
     # positional arguments
     r::Vector{Float64},
-    X::Matrix{Float64},
-    wX::Matrix{Float64}, 
-    Swxx::Vector{Float64};
+    X::Matrix{Float64};
     #keywords arguments
     family::UnivariateDistribution,
     β::SparseVector{Float64},
@@ -320,20 +308,21 @@ function cd_lasso(
         # record active set of coefficients that are nonzero
         if cd_iter == 1 || converged
             for j in 1:size(X, 2)
-                v = dot(view(wX, :, j), r)
+                v = dot(view(X, :, j), Diagonal(w), r)
                 λj = λ * p_f[j]
+                Swxxj = dot(view(X, :, j), Diagonal(w), view(X, :, j))
 
                 last_β = β[j]
                 if last_β != 0
-                    v += last_β * Swxx[j]
+                    v += last_β * Swxxj
                 else
                     # Adding a new variable to the model
                     abs(v) < λj && continue
                 end
-                new_β = softtreshold(v, λj) / Swxx[j]
+                new_β = softtreshold(v, λj) / Swxxj
                 r += view(X, :, j) * (last_β - new_β)
 
-                maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
+                maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
                 β[j] = new_β
             end
 
@@ -362,11 +351,12 @@ function cd_lasso(
             last_β = β[j]
             last_β == 0 && continue
             
-            v = dot(view(wX, :, j), r) + last_β * Swxx[j]
-            new_β = softtreshold(v, λ * p_f[j]) / Swxx[j]
+            Swxxj = dot(view(X, :, j), Diagonal(w), view(X, :, j))
+            v = dot(view(X, :, j), Diagonal(w), r) + last_β * Swxxj
+            new_β = softtreshold(v, λ * p_f[j]) / Swxxj
             r += view(X, :, j) * (last_β - new_β)
 
-            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
+            maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
             β[j] = new_β
         end
 
@@ -398,8 +388,8 @@ end
 modeltype(::Normal) = "Least Squares GLMNet"
 modeltype(::Binomial) = "Logistic"
 
-weight(::Normal, eigvals::Vector{Float64}, φ::Float64) = (1 ./(φ .+ eigvals))
-weight(::Binomial, eigvals::Vector{Float64}, φ::Float64) = (1 ./(4 .+ eigvals))
+eigenweights(::Normal, eigvals::Vector{Float64}, φ::Float64) = (1 ./(φ .+ eigvals))
+eigenweights(::Binomial, eigvals::Vector{Float64}, φ::Float64) = (1 ./(4 .+ eigvals))
 
 struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     family::F
@@ -440,9 +430,9 @@ function lambda_seq(
 end
 
 # Function to compute λ_max
-function lambda_max(X::AbstractMatrix{T}, y::AbstractVector{T}, weights::AbstractVector{T}, p_f::AbstractVector{T}) where T
+function lambda_max(X::AbstractMatrix{T}, y::AbstractVector{T}, w::AbstractVector{T}, p_f::AbstractVector{T}) where T
 
-    wY = weights .* y
+    wY = w .* y
     λ_max = zero(T)
     seq = findall(x-> x .!= 0, p_f)
     for j in seq
@@ -593,12 +583,4 @@ function GIC(path::pglmmPath, criterion)
 
     # Return betas with lowest GIC value
     return(argmin(GIC))
-end
-
-# Function to compute product of matrix columns
-function col2sum!(Swxx::AbstractVector, wXstar::AbstractMatrix{T}, Xstar::AbstractMatrix{T}) where T
-    for j in 1:size(wXstar, 2), i in 1:size(wXstar, 1)
-        @inbounds Swxx[j] += wXstar[i,j] * Xstar[i,j]
-    end
-    return(Swxx)
 end
