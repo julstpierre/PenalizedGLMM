@@ -73,25 +73,26 @@ function pglmm(
         nulldev = var(y) * (n - 1) / nullmodel.φ
     end
 
-    # Calculate U * Diagonal(w) and define Ut = U'
+    # Calculate U * Diagonal(w)
     UD_inv = U * Diagonal(w)
-    Ut = Matrix(U')
 
-    # Transform X and Y
-	Xstar = Array{Float64}(undef, n, k + p)
-	Ystar = Array{Float64}(undef, n)
-	mul!(Xstar, Ut, [X  G])
-	mul!(Ystar, Ut, Ytilde)
+    # Transform X and G
+	Xstar = Umul!(U, X)
+    Gstar = Umul!(U, G)
+
+    # Transform Y
+    Ystar = Array{Float64}(undef, n)
+	mul!(Ystar, U', Ytilde)
 
     # Initialize residuals
-    r = Ystar - view(Xstar, :, β.nzind) * β.nzval
+    r = Ystar - Xstar * β.nzval
 
     # Sequence of λ
-    λ_seq, K = lambda_seq(Ystar, Xstar; weights = w_n, p_f = p_f)
+    λ_seq, K = lambda_seq(Ystar, Xstar, Gstar; weights = w_n, p_f = p_f)
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, Ut, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, intercept)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, Gstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, intercept)
 
     # Return coefficients on original scale
     if !isempty(sX) & !isempty(sG)
@@ -121,6 +122,7 @@ function pglmm_fit(
     Ytilde::Vector{Float64},
     y::Vector{Int64},
     Xstar::Matrix{Float64},
+    Gstar::Matrix{Float64},
     nulldev::Float64,
     r::Vector{Float64},
     w::Vector{Float64},
@@ -129,7 +131,7 @@ function pglmm_fit(
     λ_seq::Vector{Float64},
     K::Int64,
     UD_inv::Matrix{Float64},
-    Ut::Matrix{Float64},
+    U::Matrix{Float64},
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
@@ -138,12 +140,11 @@ function pglmm_fit(
     intercept::Bool
 )
     # Initialize array to store output for each λ
-    sizeX = size(Xstar)
-    betas = zeros(sizeX[2], K)
+    betas = zeros(size(β, 1), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    fitted_means = zeros(sizeX[1], K)
-    μ = zeros(sizeX[1])
+    fitted_means = zeros(length(y), K)
+    μ = zeros(length(y))
 
     # Loop through sequence of λ
     i = 0
@@ -163,7 +164,7 @@ function pglmm_fit(
         for irwls in 1:irwls_maxiter
 
             # Run coordinate descent inner loop to update β and r
-            β, r = cd_lasso(r, Xstar; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, p_f = p_f, λ = λ, criterion = criterion)
+            β, r = cd_lasso(r, Xstar, Gstar; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, p_f = p_f, λ = λ, criterion = criterion)
 
             # Update μ
             μ = updateμ(r, Ytilde, UD_inv)
@@ -188,7 +189,7 @@ function pglmm_fit(
             end 
 
             # Update working response and residuals
-            Ytilde, r = wrkresp(y, r, μ, Ytilde, Ut)
+            Ytilde, r = wrkresp(y, r, μ, Ytilde, U)
 
             # Check termination conditions
             converged = abs(loss - prev_loss) < irwls_tol * loss
@@ -220,6 +221,7 @@ function pglmm_fit(
     Ytilde::Vector{Float64},
     y::Vector{Float64},
     Xstar::Matrix{Float64},
+    Gstar::Matrix{Float64},
     nulldev::Float64,
     r::Vector{Float64},
     w::Vector{Float64},
@@ -228,7 +230,7 @@ function pglmm_fit(
     λ_seq::Vector{Float64},
     K::Int64,
     UD_inv::Matrix{Float64},
-    Ut::Matrix{Float64},
+    U::Matrix{Float64},
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
@@ -236,11 +238,10 @@ function pglmm_fit(
     intercept::Bool  
 )
     # Initialize array to store output for each λ
-    sizeX = size(Xstar)
-    betas = zeros(sizeX[2], K)
+    betas = zeros(size(β, 1), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
-    residuals = zeros(sizeX[1], K)
+    residuals = zeros(length(y), K)
 
     # Loop through sequence of λ
     i = 0
@@ -258,7 +259,7 @@ function pglmm_fit(
         last_dev_ratio = dev_ratio
 
         # Run coordinate descent inner loop to update β and r
-        β, r = cd_lasso(r, Xstar; family = Normal(), β = β, p_f = p_f, λ = λ)
+        β, r = cd_lasso(r, Xstar, Gstar; family = Normal(), β = β, p_f = p_f, λ = λ)
 
         # Update deviance
         dev = NormalDeviance(r, w)
@@ -284,7 +285,8 @@ end
 function cd_lasso(
     # positional arguments
     r::Vector{Float64},
-    X::Matrix{Float64};
+    X::Matrix{Float64},
+    G::Matrix{Float64};
     #keywords arguments
     family::UnivariateDistribution,
     β::SparseVector{Float64},
@@ -302,12 +304,14 @@ function cd_lasso(
     converged = false
     maxΔ = zero(Float64)
     loss = Inf
-  
+    k = size(X, 2)
+
     for cd_iter in 1:cd_maxiter
         # At firs iteration, perform one coordinate cycle and 
         # record active set of coefficients that are nonzero
         if cd_iter == 1 || converged
-            for j in 1:size(X, 2)
+            # Non-genetic covariates
+            for j in 1:k
                 v = dot(view(X, :, j), Diagonal(w), r)
                 λj = λ * p_f[j]
                 Swxxj = dot(view(X, :, j), Diagonal(w), view(X, :, j))
@@ -324,6 +328,26 @@ function cd_lasso(
 
                 maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
                 β[j] = new_β
+            end
+
+            # Genetic covariates
+            for j in 1:size(G, 2)
+                v = dot(view(G, :, j), Diagonal(w), r)
+                λj = λ * p_f[k + j]
+                Swxxj = dot(view(G, :, j), Diagonal(w), view(G, :, j))
+
+                last_β = β[k + j]
+                if last_β != 0
+                    v += last_β * Swxxj
+                else
+                    # Adding a new variable to the model
+                    abs(v) < λj && continue
+                end
+                new_β = softtreshold(v, λj) / Swxxj
+                r += view(G, :, j) * (last_β - new_β)
+
+                maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
+                β[k + j] = new_β
             end
 
             # Check termination condition at last iteration
@@ -346,8 +370,9 @@ function cd_lasso(
 
         # Cycle over coefficients in active set only until convergence
         maxΔ = zero(Float64)
-
-        for j in β.nzind
+        
+        # Non-genetic covariates
+        for j in β.nzind[β.nzind .<= k]
             last_β = β[j]
             last_β == 0 && continue
             
@@ -355,6 +380,20 @@ function cd_lasso(
             v = dot(view(X, :, j), Diagonal(w), r) + last_β * Swxxj
             new_β = softtreshold(v, λ * p_f[j]) / Swxxj
             r += view(X, :, j) * (last_β - new_β)
+
+            maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
+            β[j] = new_β
+        end
+
+        # Genetic predictors
+        for j in β.nzind[β.nzind .> k]
+            last_β = β[j]
+            last_β == 0 && continue
+            
+            Swxxj = dot(view(G, :, j-k), Diagonal(w), view(G, :, j-k))
+            v = dot(view(G, :, j-k), Diagonal(w), r) + last_β * Swxxj
+            new_β = softtreshold(v, λ * p_f[j]) / Swxxj
+            r += view(G, :, j-k) * (last_β - new_β)
 
             maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
             β[j] = new_β
@@ -414,14 +453,16 @@ end
 # Function to compute sequence of values for λ
 function lambda_seq(
     y::Vector{Float64}, 
-    X::Matrix{Float64}; 
+    X::Matrix{Float64},
+    G::Matrix{Float64}; 
     weights::Vector{Float64},
     p_f::Vector{Float64},
     K::Integer = 100
     )
 
-    λ_min_ratio = (length(y) < size(X, 2) ? 1e-2 : 1e-4)
-    λ_max = lambda_max(X, y, weights, p_f)
+    λ_min_ratio = (length(y) < size(G, 2) ? 1e-2 : 1e-4)
+    λ_max = lambda_max(X, y, weights, p_f[1:size(X, 2)])
+    λ_max = lambda_max(G, y, weights, p_f[(size(X, 2) + 1):end], λ_max)
     λ_min = λ_max * λ_min_ratio
     λ_step = log(λ_min_ratio)/(K - 1)
     λ_seq = exp.(collect(log(λ_max):λ_step:log(λ_min)))
@@ -430,10 +471,9 @@ function lambda_seq(
 end
 
 # Function to compute λ_max
-function lambda_max(X::AbstractMatrix{T}, y::AbstractVector{T}, w::AbstractVector{T}, p_f::AbstractVector{T}) where T
+function lambda_max(X::AbstractMatrix{T}, y::AbstractVector{T}, w::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T)) where T
 
     wY = w .* y
-    λ_max = zero(T)
     seq = findall(x-> x .!= 0, p_f)
     for j in seq
         x = abs(dot(view(X, :,j), wY))
@@ -461,10 +501,10 @@ function wrkresp(
     r::Vector{Float64},
     μ::Vector{Float64},
     Ytilde::Vector{Float64},
-    Ut::Matrix{Float64}
+    U::Matrix{Float64}
 )
     η = GLM.linkfun.(LogitLink(), μ)
-    r += Ut * (η + 4 * (y - μ) - Ytilde)
+    r += U' * (η + 4 * (y - μ) - Ytilde)
     Ytilde = η + 4 * (y - μ)
     return(Ytilde, r)
 end
@@ -583,4 +623,19 @@ function GIC(path::pglmmPath, criterion)
 
     # Return betas with lowest GIC value
     return(argmin(GIC))
+end
+
+# In-place multiplication of predictor matrix with eigenvectors matrix U'
+function Umul!(U::AbstractMatrix{T}, X::AbstractMatrix{T}; K::Integer = 1) where T
+    n, p = size(X)
+    b = similar(X, n, K)
+    jseq = collect(1:K:p)[1:(end-1)]
+
+    @inbounds for j in jseq
+        X[:, j:(j+K-1)] = mul!(b, U', view(X, :, j:(j+K-1)))
+    end
+
+    b = similar(X, n, length((last(jseq) + K):p))
+    X[:, (last(jseq) + K):p] = mul!(b, U', view(X, :, (last(jseq) + K):p))
+    return(X)
 end
