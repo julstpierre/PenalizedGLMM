@@ -13,8 +13,8 @@
 #' @param Fst The desired final FST of the admixed individuals. Required if
 #'   sigma is missing
 #' @param b0 the true intercept parameter
-#' @param eta the true eta parameter, which has to be \code{0 < eta < 1}
-#' @param sigma2 the true sigma2 parameter
+#' @param h2_g fraction of variance (logit scale) that is due to causal snps
+#' @param h2_g fraction of variance (logit scale) that is due to random effects
 #' @param nPC number of principal components to include in the design matrix
 #'   used for regression adjustment for population structure via principal
 #'   components. This matrix is used as the input in a standard lasso regression
@@ -67,22 +67,13 @@
 #'                                 percent_overlap = "100",
 #'                                 k = 5, s = 0.5, Fst = 0.1,
 #'                                 b0 = 0, nPC = 10,
-#'                                 eta = 0.1, sigma2 = 1,
+#'                                 h2_g = 0.5, h2_b = 3,
 #'                                 train_tune_test = c(0.8, 0.1, 0.1))
 #' names(admixed)
+
 gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10,
-                                 eta, sigma2, geography = c("ind", "1d", "circ"),
+                                 h2_g, h2_b, geography = c("ind", "1d", "circ"),
                                  percent_causal, percent_overlap, train_tune_test = c(0.6, 0.2, 0.2)) {
-  
-  # p_design:
-  # p_kinship:
-  # k:	N
-  # s:
-  # F: The length-k vector of inbreeding coefficients (or FST's) of the intermediate subpopulations,
-  # up to a scaling factor (which cancels out in calculations). Required if sigma is missing
-  # Fst: T
-  # browser()
-  # define population structure
   
   if(sum(train_tune_test) != 1) stop("Training/tune/test split must be equal to 1")
   
@@ -184,8 +175,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
     
     kinship <- bnpsd::coanc_to_kinship(coancestry)
   }
-  
-  
+
   #####################
   ### GENERATE SNPS ###
   #####################
@@ -280,7 +270,6 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
       want_p_ind = TRUE
     )
     
-    
     Xall <- t(out$X) # genotypes are columns, rows are subjects
     cnames <- paste0("X", 1:total_snps_to_simulate)
     colnames(Xall) <- cnames
@@ -288,8 +277,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
     Xall[1:5,1:5]
     dim(Xall)
     subpops <- ceiling( (1:n)/n*k )
-    table(subpops) # got k=10 subpops with 100 individuals each
-    
+    table(subpops) # got k=10 subpops with 100 individuals each    
     
     # Snps used for kinship
     snps_kinships <- sample(cnames, p_kinship, replace = FALSE)
@@ -298,7 +286,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
     snps_design <- setdiff(cnames, snps_kinships)
     # length(snps_design)
     # setdiff(cnames, snps_kinships) %>% length()
-    if (percent_causal !=0) {
+    if (percent_causal != 0) {
       
       # compute marginal allele frequencies
       p_anc_hat <- colMeans(Xall[,snps_design, drop=FALSE], na.rm = TRUE)/2
@@ -331,31 +319,44 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   n <- np[[1]]
   p <- np[[2]]
   
+  # Simulate AGE and SEX as covariates
+  AGE = round(stats::rnorm(n, 50, 5), 0)
+  SEX = stats::rbinom(n, 1, 0.5)
+
+  # Variance components
+  sigma2_e = pi^2 / 3 + log(1.3)^2 * var(SEX) + log(1.05)^2 * var(AGE / 10)
+  sigma2_g = h2_g / (1 - h2_g - h2_b) * sigma2_e
+  sigma2_b = h2_b / (1 - h2_g - h2_b) * sigma2_e
+
   beta <- rep(0, length = p)
   if (percent_causal != 0) {
-    beta[which(colnames(Xdesign) %in% causal)] <- stats::rnorm(n = length(causal))
+    beta[which(colnames(Xdesign) %in% causal)] <- stats::rnorm(n = length(causal), sd = sqrt(sigma2_g/length(causal)))
   }
   
-  mu <- as.numeric(Xdesign %*% beta)
-  
-  # y <- trait
   kin <- 2 * PhiHat
   
-  tt <- eta * sigma2 * kin
+  tt <- sigma2_b * kin
   if (!all(eigen(tt)$values > 0)) {
-    message("eta * sigma2 * kin not PD, using Matrix::nearPD")
+    message("sigma2_b * kin not PD, using Matrix::nearPD")
     tt <- Matrix::nearPD(tt)$mat
   }
   
   P <- MASS::mvrnorm(1, mu = rep(0, n), Sigma = tt)
-  E <- MASS::mvrnorm(1, mu = rep(0, n), Sigma = (1 - eta) * sigma2 * diag(n))
-  # y <- mu + sigma * matrix(rnorm(nsim * n), n, nsim)
-  # y <- b0 + mu + t(P) + t(E)
-  # y <- MASS::mvrnorm(1, mu = mu, Sigma = eta * sigma2 * kin + (1 - eta) * sigma2 * diag(n))
-  y <- b0 + mu + P + E
+
+  # Standardize Xdesign
+  mu <- apply(Xdesign, 2, mean)
+  s <- sqrt(apply((t(Xdesign) - mu)^2, 1, mean))
+  Xdesign <- t((t(Xdesign) - mu) / s)
+
+  # Simulate binary traits
+  logit <- function(x) log(x / (1 - x))
+  expit <- function(x) exp(x) / (1 + exp(x))
+  logit_pi <- logit(b0) - log(1.3) * SEX + log(1.05) * AGE + as.numeric(Xdesign %*% beta) + P
+  y <- rbinom(n = length(logit_pi), size = 1, prob = expit(logit_pi))
   
   # partition the data into train/tune/test
   spec <- c(train = train_tune_test[1], tune = train_tune_test[2], test = train_tune_test[3])
+  spec <- spec[spec != 0]
   
   g <- sample(cut(
     seq(nrow(Xdesign)),
@@ -372,46 +373,36 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   xtrain <- Xdesign[train_ind,,drop=FALSE]
   xtune <- Xdesign[tune_ind,,drop=FALSE]
   xtest <- Xdesign[test_ind,,drop=FALSE]
+
+  xkintrain <- Xkinship[train_ind,,drop=FALSE]
+  xkintune <- Xkinship[tune_ind,,drop=FALSE]
+  xkintest <- Xkinship[test_ind,,drop=FALSE]
   
   ytrain <- y[train_ind]
   ytune <- y[tune_ind]
   ytest <- y[test_ind]
-  
-  kin_train <- kin[train_ind,train_ind]
-  kin_tune_train <- kin[tune_ind,train_ind]
-  kin_test_train <- kin[test_ind,train_ind]
-  
-  # xtrain <- Xdesign[ind,,drop=FALSE]
-  # xtune <- Xdesign[-ind,,drop=FALSE]
-  PC_all <- stats::prcomp(Xdesign)
-  PC <- stats::prcomp(xtrain)
-  xtrain_lasso <- cbind(xtrain, PC$x[,1:nPC])
-  xtune_pc <- stats::predict(PC, newdata = xtune)
-  xtune_lasso <- cbind(xtune, xtune_pc[,1:nPC])
-  xtest_pc <- stats::predict(PC, newdata = xtest)
-  xtest_lasso <- cbind(xtest, xtest_pc[,1:nPC])
-  
-  mu_train <- mu[train_ind]
-  
+ 
+  PC_all <- stats::prcomp(Xkinship, rank = nPC)
+  PC <- stats::prcomp(xkintrain, rank = nPC)
+  xtrain_lasso <- cbind(xtrain, SEX = SEX[train_ind], AGE = AGE[train_ind], PC$x[,1:nPC])
+  xtune_pc <- stats::predict(PC, newdata = xkintune)
+  xtune_lasso <- cbind(xtune, SEX = SEX[tune_ind], AGE = AGE[tune_ind], xtune_pc[,1:nPC])
+  xtest_pc <- stats::predict(PC, newdata = xkintest)
+  xtest_lasso <- cbind(xtest, SEX = SEX[test_ind], AGE = AGE[test_ind], xtest_pc[,1:nPC])
   
   return(list(ytrain = ytrain,
               ytune = ytune,
               ytest = ytest,
               
-              xtrain = xtrain,
-              xtune = xtune,
-              xtest = xtest,
-              
               xtrain_lasso = xtrain_lasso,
               xtune_lasso = xtune_lasso,
               xtest_lasso = xtest_lasso,
               
-              Xkinship = Xall[train_ind,snps_kinships, drop = FALSE],
-              kin_train = kin_train,
-              kin_tune_train = kin_tune_train,
-              kin_test_train = kin_test_train, # covaraince between train and test
-              
-              mu_train = mu_train, # Xbeta for training set
+              train_ind = train_ind,
+              test_ind = test_ind,
+              tune_ind = tune_ind,
+
+              kin = kin,
               
               causal = causal,
               beta = beta,
