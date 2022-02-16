@@ -38,7 +38,8 @@ n <- 2500
 # ------------------------------------------------------------------------
 # Source R function to simulate genotypes
 # ------------------------------------------------------------------------
-source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/simtrait.R'))
+#source(paste0(dirname(rstudioapi::getSourceEditorContext()$path), '/simtrait.R'))
+source('simtrait.R')
 admixed <- gen_structured_model(n = n,
                                 p_design = p_design,
                                 p_kinship = p_kinship,
@@ -72,9 +73,18 @@ colnames(X) <- colnames(admixed$xtrain_lasso[ ,-c(1:p_design)])
 X[admixed$train_ind, ] <- admixed$xtrain_lasso[ ,-c(1:p_design)]
 X[admixed$test_ind, ] <- admixed$xtest_lasso[ ,-c(1:p_design)]
 
+# Genetic predictors
+G <- array(dim = c(n, p_design))
+colnames(G) <- colnames(admixed$xtrain_lasso[ , 1:p_design])
+G[admixed$train_ind, ] <- admixed$xtrain_lasso[ ,1:p_design]
+G[admixed$test_ind, ] <- admixed$xtest_lasso[ , 1:p_design]
+
 # CSV file containing covariates
 final_dat <- cbind(IID = paste0("ID", 1:n), X, train = c(1:n) %in% admixed$train_ind, y)
 write.csv(final_dat, paste0(args[9], "covariate.txt"), quote = FALSE, row.names = FALSE)
+
+# CSV file containing genetic predictors
+write.csv(G, paste0(args[9], "snps.txt"), quote = FALSE, row.names = FALSE)
 
 # CSV file containing beta for each SNP
 write.csv(cbind(beta = admixed$beta), paste0(args[9], "betas.txt"), quote = FALSE, row.names = FALSE)
