@@ -12,21 +12,26 @@ library(data.table)
 # Load the phenotype data
 #=======================================================================
 #Read phenotype and covariates file
-pheno.cov <- read.table("covariate.txt", sep=",", header = T) %>%
-  mutate(ID=paste(FID,":",IID,sep=""))
-
-trainrowinds = which(pheno.cov$train == "true")
+pheno.cov <- read.table("covariate.txt", sep=",", header = T)
+trainrowinds <- which(pheno.cov$train %in% c(TRUE, "true"))
 n <- length(trainrowinds)
+
 #=======================================================================
 # Load the genotype data
 #=======================================================================
-tmpfile <- tempfile()
-snp_readBed("geno.bed",backingfile = tmpfile)
-
-# Attach the "bigSNP" object in R session
-obj.bigSNP <- snp_attach(paste0(tmpfile, ".rds"))
-p <- nrow(obj.bigSNP$map)
-G <- bigsnpr::snp_fastImputeSimple(obj.bigSNP$genotypes)[,1:p]
+if (file.exists("geno.bed")){
+  tmpfile <- tempfile()
+  snp_readBed("geno.bed",backingfile = tmpfile)
+  
+  # Attach the "bigSNP" object in R session
+  obj.bigSNP <- snp_attach(paste0(tmpfile, ".rds"))
+  p <- nrow(obj.bigSNP$map)
+  G <- bigsnpr::snp_fastImputeSimple(obj.bigSNP$genotypes)[,1:p]
+  
+} else if (file.exists("snps.txt")){
+  G <- read.csv("snps.txt")
+  p <- ncol(G)
+}
 
 # Standardize genotype matrix
 s <- apply(G, 2, sd)
@@ -35,8 +40,8 @@ Gtrain <- G[trainrowinds,]
 
 #Read GRM matrix
 GRM <- as.matrix(fread("grm.txt.gz"))
-colnames(GRM) <- pheno.cov$ID
-rownames(GRM) <- pheno.cov$ID
+colnames(GRM) <- pheno.cov$IID
+rownames(GRM) <- pheno.cov$IID
 
 #=======================================================================
 # GGMIX

@@ -5,20 +5,19 @@ library(data.table)
 
 #Read phenotype and covariates file
 pheno.cov <- read.table("covariate.txt", sep=",", header = T) %>%
-  mutate(ID=paste(FID,":",IID,sep="")) %>%
   filter(train == "true")
 
 #Read GRM matrix
-trainrowinds = which(pheno.cov$train == "true")
+trainrowinds <- which(pheno.cov$train %in% c(TRUE, "true"))
 GRM <- as.matrix(fread("grm.txt.gz"))[trainrowinds, trainrowinds]
-colnames(GRM) <- pheno.cov$ID
-rownames(GRM) <- pheno.cov$ID
+colnames(GRM) <- pheno.cov$IID
+rownames(GRM) <- pheno.cov$IID
 
 #Fit null GLMM with GRM only
 model0 <- glmmkin(y ~ SEX + AGE
                   ,data = pheno.cov
                   ,kins = GRM
-                  ,id = "ID"
+                  ,id = "IID"
                   ,family = binomial(link = "logit")
 )
 

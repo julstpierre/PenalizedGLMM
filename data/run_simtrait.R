@@ -55,8 +55,8 @@ admixed <- gen_structured_model(n = n,
 #-----------------------------------------
 # Write kinship to txt.gz compressed file
 #-----------------------------------------
-gz <- gzfile("grm.txt.gz", "w")
-write.table(admixed$kin, gz)
+gz <- gzfile(paste0(args[9], "grm.txt.gz"), "w")
+write.csv(admixed$kin, gz, row.names = FALSE)
 close(gz)
 
 #----------------------

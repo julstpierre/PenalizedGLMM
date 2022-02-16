@@ -50,7 +50,7 @@ function pglmm(
         # Convert genotype file to matrix, convert to additive model (default) and impute
         snpinds = isnothing(snpinds) ? (1:size(geno, 2)) : snpinds 
         geneticrowinds = isnothing(geneticrowinds) ? (1:size(geno, 1)) : geneticrowinds
-        G = geno[geneticrowinds, snpinds]
+        G = convert.(Float64, Matrix(geno[geneticrowinds, snpinds]))
     end
 
     # Initialize number of subjects and predictors (including intercept)
@@ -152,7 +152,7 @@ function pglmm_fit(
     intercept::Bool
 )
     # Initialize array to store output for each λ
-    betas = zeros(size(β, 1), K)
+    betas = zeros(length(β), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
     fitted_means = zeros(length(y), K)
@@ -222,7 +222,7 @@ function pglmm_fit(
     end
 
     if intercept
-        return(a0 = view(betas, 1, 1:i), betas = view(betas, 2:sizeX[2], 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+        return(a0 = view(betas, 1, 1:i), betas = view(betas, 2:length(β), 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
     else
         return(a0 = zeros(i), betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
     end
@@ -250,7 +250,7 @@ function pglmm_fit(
     intercept::Bool  
 )
     # Initialize array to store output for each λ
-    betas = zeros(size(β, 1), K)
+    betas = zeros(length(β), K)
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
     residuals = zeros(length(y), K)
@@ -287,7 +287,7 @@ function pglmm_fit(
     end
 
     if intercept
-        return(a0 = view(betas, 1, 1:i), betas = view(betas, 2:sizeX[2], 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+        return(a0 = view(betas, 1, 1:i), betas = view(betas, 2:length(β), 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
     else
         return(a0 = zeros(i), betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
     end
@@ -306,7 +306,7 @@ function cd_lasso(
     y::Vector{Int64},
     w::Vector{Float64}, 
     UD_inv::Matrix{Float64},
-    p_f::Vector{Float64} = ones(size(X, 2)), 
+    p_f::Vector{Float64}, 
     λ::Float64,
     cd_maxiter::Integer = 100000,
     cd_tol::Real=1e-8,
@@ -548,16 +548,20 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool =
     if standardize
         mu = intercept ? mean(X[:,2:end], dims = 1) : mean(X, dims = 1) 
         s = intercept ? vec(std(X[:,2:end], dims = 1, corrected = false)) : vec(std(X, dims = 1, corrected = false))
-        @assert all(s .!= 0) "One predictor is a constant, hence it cannot be standardize."
-        if intercept
-			for j in 2:size(X,2), i in 1:size(X, 1) 
-                @inbounds X[i,j] = (X[i,j] .- mu[j-1]) / s[j-1]
+        if all(s .!= 0)
+            if intercept
+                for j in 2:size(X,2), i in 1:size(X, 1) 
+                    @inbounds X[i,j] = (X[i,j] .- mu[j-1]) / s[j-1]
+                end
+            else
+                for j in 1:size(X,2), i in 1:size(X, 1) 
+                    @inbounds X[i,j] = (X[i,j] .- mu[j]) / s[j]
+                end
             end
-		else
-			for j in 1:size(X,2), i in 1:size(X, 1) 
-                @inbounds X[i,j] = (X[i,j] .- mu[j]) / s[j]
-            end
-		end
+        else
+            println("One predictor is a constant, hence it cannot be standardize !")
+            mu = []; s = []
+        end
     else
         mu = []; s = []
     end
