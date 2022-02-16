@@ -10,6 +10,7 @@ const ARGS_ = isempty(ARGS) ? [""] : ARGS
 const datadir = ARGS_[1]
 const covfile = datadir * "covariate.txt"
 const plinkfile = datadir * "geno"
+const snpfile = datadir * "snps.txt"
 const grmfile = datadir * "grm.txt.gz"
 
 #-------------------------------------------------------------------
@@ -24,7 +25,11 @@ testrowinds = setdiff(1:nrow(covdf), trainrowinds)
 nullmodel = pglmm_null(@formula(y ~ SEX + AGE), covfile, grmfile, covrowinds = trainrowinds, grminds = trainrowinds)
 
 # Fit a penalized logistic mixed model
-modelfit = pglmm(nullmodel, plinkfile, geneticrowinds = trainrowinds, verbose = true)
+if isfile(plinkfile * ".bed")
+        modelfit = pglmm(nullmodel, plinkfile, geneticrowinds = trainrowinds, verbose = true)
+elseif isfile(snpfile)
+        modelfit = pglmm(nullmodel, snpfile = snpfile, geneticrowinds = trainrowinds, verbose = true)
+end
 
 # Genetic predictors effects at each λ   
 pglmm_β = modelfit.betas[3:end,:]

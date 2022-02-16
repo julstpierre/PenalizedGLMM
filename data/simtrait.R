@@ -345,12 +345,12 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   # Standardize Xdesign
   mu <- apply(Xdesign, 2, mean)
   s <- sqrt(apply((t(Xdesign) - mu)^2, 1, mean))
-  Xdesign <- t((t(Xdesign) - mu) / s)
+  Xdesign_ <- t((t(Xdesign) - mu) / s)
 
   # Simulate binary traits
   logit <- function(x) log(x / (1 - x))
   expit <- function(x) exp(x) / (1 + exp(x))
-  logit_pi <- logit(b0) - log(1.3) * SEX + log(1.05) * AGE + as.numeric(Xdesign %*% beta) + P
+  logit_pi <- logit(b0) - log(1.3) * SEX + log(1.05) * AGE + as.numeric(Xdesign_ %*% beta) + P
   y <- rbinom(n = length(logit_pi), size = 1, prob = expit(logit_pi))
   
   # partition the data into train/tune/test

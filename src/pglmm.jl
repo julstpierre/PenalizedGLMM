@@ -16,8 +16,9 @@
 function pglmm(
     # positional arguments
     nullmodel,
-    plinkfile::AbstractString;
+    plinkfile::Union{Nothing, AbstractString} = nothing;
     # keyword arguments
+    snpfile::Union{Nothing, AbstractString} = nothing,
     snpmodel = ADDITIVE_MODEL,
     snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
@@ -33,13 +34,24 @@ function pglmm(
     kwargs...
     )
 
-    # read PLINK files
-    geno = SnpArray(plinkfile * ".bed")
-    
-    # Convert genotype file to matrix, convert to additive model (default) and impute
-    snpinds = isnothing(snpinds) ? (1:size(geno, 2)) : snpinds 
-    geneticrowinds = isnothing(geneticrowinds) ? (1:size(geno, 1)) : geneticrowinds
-    G = convert(Matrix{Float64}, @view(geno[geneticrowinds, snpinds]), model = snpmodel, impute = true)
+    # Read genotype file
+    if !isnothing(plinkfile)
+        # read PLINK files
+        geno = SnpArray(plinkfile * ".bed")
+        
+        # Convert genotype file to matrix, convert to additive model (default) and impute
+        snpinds = isnothing(snpinds) ? (1:size(geno, 2)) : snpinds 
+        geneticrowinds = isnothing(geneticrowinds) ? (1:size(geno, 1)) : geneticrowinds
+        G = convert(Matrix{Float64}, @view(geno[geneticrowinds, snpinds]), model = snpmodel, impute = true)
+    elseif !isnothing(snpfile)
+        # read CSV file
+        geno = CSV.read(snpfile, DataFrame)
+        
+        # Convert genotype file to matrix, convert to additive model (default) and impute
+        snpinds = isnothing(snpinds) ? (1:size(geno, 2)) : snpinds 
+        geneticrowinds = isnothing(geneticrowinds) ? (1:size(geno, 1)) : geneticrowinds
+        G = geno[geneticrowinds, snpinds]
+    end
 
     # Initialize number of subjects and predictors (including intercept)
     (n, p), k = size(G), size(nullmodel.X, 2)
