@@ -46,11 +46,19 @@ admixed <- gen_structured_model(n = n,
                                 geography = "1d",
                                 percent_causal = percent_causal,
                                 percent_overlap = percent_overlap,
-                                k = K, s = 0.5, Fst = 0.1,
+                                k = K, s = 0.5, Fst = 1/K,
                                 b0 = pi0, nPC = 10,
                                 h2_g = h2_g, h2_b = h2_b,
                                 train_tune_test = c(0.8, 0, 0.2)
 )
+
+#-----------------------
+# PCA plot
+#----------------------
+#library(ggplot2)
+#ggplot(data.frame(admixed$PC, pop = as.character(admixed$subpops)), aes(PC1, PC2, col = pop)) + 
+#  geom_point(size = 3, show.legend = FALSE) +
+#  xlab("PC1") + ylab("PC2")
 
 #-----------------------------------------
 # Write kinship to txt.gz compressed file
@@ -87,5 +95,5 @@ write.csv(final_dat, paste0(args[9], "covariate.txt"), quote = FALSE, row.names 
 write.csv(G, paste0(args[9], "snps.txt"), quote = FALSE, row.names = FALSE)
 
 # CSV file containing beta (on original genotype scale) for each SNP
-beta = admixed$beta / admixed$s
+beta = admixed$beta / admixed$std
 write.csv(cbind(beta = beta), paste0(args[9], "betas.txt"), quote = FALSE, row.names = FALSE)

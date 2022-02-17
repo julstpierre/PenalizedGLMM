@@ -344,8 +344,8 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
 
   # Standardize Xdesign
   mu <- apply(Xdesign, 2, mean)
-  s <- sqrt(apply((t(Xdesign) - mu)^2, 1, mean))
-  Xdesign_ <- t((t(Xdesign) - mu) / s)
+  std <- sqrt(apply((t(Xdesign) - mu)^2, 1, mean))
+  Xdesign_ <- t((t(Xdesign) - mu) / std)
 
   # Simulate binary traits
   logit <- function(x) log(x / (1 - x))
@@ -403,7 +403,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
 
               kin = kin,
               
-              s = s,
+              std = std,
               
               causal = causal,
               beta = beta,
