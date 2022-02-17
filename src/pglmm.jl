@@ -89,7 +89,7 @@ function pglmm(
     UD_inv = U * Diagonal(w)
 
     # Transform X and G
-	Xstar = Umul!(U, X)
+	Xstar = Umul!(U, X, K = 1)
     Gstar = Umul!(U, G)
 
     # Transform Y
@@ -545,25 +545,26 @@ end
 
 # Standardize predictors for lasso
 function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool = false) where T
+    mu = intercept ? vec([0 mean(X[:,2:end], dims = 1)]) : vec(mean(X, dims = 1))
     if standardize
-        mu = intercept ? mean(X[:,2:end], dims = 1) : mean(X, dims = 1) 
-        s = intercept ? vec(std(X[:,2:end], dims = 1, corrected = false)) : vec(std(X, dims = 1, corrected = false))
-        if all(s .!= zero(T))
-            if intercept
-                for j in 2:size(X,2), i in 1:size(X, 1) 
-                    @inbounds X[i,j] = (X[i,j] .- mu[j-1]) / s[j-1]
-                end
-            else
-                for j in 1:size(X,2), i in 1:size(X, 1) 
-                    @inbounds X[i,j] = (X[i,j] .- mu[j]) / s[j]
-                end
-            end
-        else
-            @warn("One predictor is a constant, hence X has not been standardized!")
-            mu = []; s = []
+        s = vec(std(X, dims = 1, corrected = false))
+        if any(s .== zero(T))
+            !intercept && @warn("One predictor is a constant, hence it can't been standardized!")
+            s[s .== 0] .= 1 
+        end
+        for j in 1:size(X,2), i in 1:size(X, 1) 
+            @inbounds X[i,j] = (X[i,j] .- mu[j]) / s[j]
         end
     else
-        mu = []; s = []
+        for j in 1:size(X,2), i in 1:size(X, 1) 
+            @inbounds X[i,j] = X[i,j] .- mu[j]
+        end
+        s = []
+    end
+
+    # Remove first term if intercept
+    if intercept 
+         popfirst!(mu); popfirst!(s)
     end
 
     X, mu, s
@@ -642,7 +643,7 @@ function GIC(path::pglmmPath, criterion)
 end
 
 # In-place multiplication of predictor matrix with eigenvectors matrix U'
-function Umul!(U::AbstractMatrix{T}, X::AbstractMatrix{T}; K::Integer = 1) where T
+function Umul!(U::AbstractMatrix{T}, X::AbstractMatrix{T}; K::Integer = 1000) where T
     n, p = size(X)
     b = similar(X, n, K)
     jseq = collect(1:K:p)[1:(end-1)]
