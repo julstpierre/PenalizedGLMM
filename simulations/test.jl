@@ -44,9 +44,16 @@ pglmmBIC_β  = pglmm_β[:,pglmmBIC]
 #----------------------------
 # GLMNet
 #----------------------------
-# convert PLINK genotype to matrix, convert to additive model (default) and impute
-geno = SnpArray(plinkfile * ".bed")
-G = convert(Matrix{Float64}, @view(geno[trainrowinds,:]), model = ADDITIVE_MODEL, impute = true)
+if isfile(plinkfile * ".bed")
+	# convert PLINK genotype to matrix, convert to additive model (default) and impute
+	geno = SnpArray(plinkfile * ".bed")
+	G = convert(Matrix{Float64}, @view(geno[trainrowinds,:]), model = ADDITIVE_MODEL, impute = true)
+elseif isfile(snpfile)
+	# Read genotype from csv file and convert to matrix
+	geno = CSV.read(snpfile, DataFrame)
+	G = convert.(Float64, Matrix(geno[trainrowinds,:]))
+end
+
 p = size(G, 2)
 
 # y must be a matrix with one column per class
@@ -99,7 +106,12 @@ betas.cv_glmnetPC = cv_glmnetPC_β
 yhat = DataFrame()
 
 # Create Arrays for test set
-Gnew = convert(Matrix{Float64}, @view(geno[testrowinds,:]), model = ADDITIVE_MODEL, impute = true)
+if isfile(plinkfile)
+	Gnew = convert(Matrix{Float64}, @view(geno[testrowinds,:]), model = ADDITIVE_MODEL, impute = true)
+elseif isfile(snpfile)
+	Gnew = convert.(Float64, Matrix(geno[testrowinds,:]))
+end
+
 Xnew = [Array(covdf[testrowinds, varlist]) Gnew]
 XwithPCnew = [Array(covdf[testrowinds, varlistwithPC]) Gnew]
 

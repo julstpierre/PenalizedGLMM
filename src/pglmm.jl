@@ -319,7 +319,7 @@ function cd_lasso(
     k = size(X, 2)
 
     for cd_iter in 1:cd_maxiter
-        # At firs iteration, perform one coordinate cycle and 
+        # At first iteration, perform one coordinate cycle and 
         # record active set of coefficients that are nonzero
         if cd_iter == 1 || converged
             # Non-genetic covariates
@@ -486,7 +486,7 @@ end
 function lambda_max(X::AbstractMatrix{T}, y::AbstractVector{T}, w::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T)) where T
 
     wY = w .* y
-    seq = findall(x-> x .!= 0, p_f)
+    seq = findall(x-> x != 0, p_f)
     for j in seq
         x = abs(dot(view(X, :,j), wY))
         if x > λ_max
@@ -548,7 +548,7 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool =
     if standardize
         mu = intercept ? mean(X[:,2:end], dims = 1) : mean(X, dims = 1) 
         s = intercept ? vec(std(X[:,2:end], dims = 1, corrected = false)) : vec(std(X, dims = 1, corrected = false))
-        if all(s .!= 0)
+        if all(s .!= zero(T))
             if intercept
                 for j in 2:size(X,2), i in 1:size(X, 1) 
                     @inbounds X[i,j] = (X[i,j] .- mu[j-1]) / s[j-1]
@@ -559,7 +559,7 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool =
                 end
             end
         else
-            println("One predictor is a constant, hence it cannot be standardize !")
+            @warn("One predictor is a constant, hence X has not been standardized!")
             mu = []; s = []
         end
     else

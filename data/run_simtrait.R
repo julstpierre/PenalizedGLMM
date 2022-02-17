@@ -86,5 +86,6 @@ write.csv(final_dat, paste0(args[9], "covariate.txt"), quote = FALSE, row.names 
 # CSV file containing genetic predictors
 write.csv(G, paste0(args[9], "snps.txt"), quote = FALSE, row.names = FALSE)
 
-# CSV file containing beta for each SNP
-write.csv(cbind(beta = admixed$beta), paste0(args[9], "betas.txt"), quote = FALSE, row.names = FALSE)
+# CSV file containing beta (on original genotype scale) for each SNP
+beta = admixed$beta / admixed$s
+write.csv(cbind(beta = beta), paste0(args[9], "betas.txt"), quote = FALSE, row.names = FALSE)

@@ -4,18 +4,17 @@ library(GMMAT)
 library(data.table)
 
 #Read phenotype and covariates file
-pheno.cov <- read.table("covariate.txt", sep=",", header = T) %>%
-  filter(train == "true")
+pheno.cov <- read.table("covariate.txt", sep=",", header = T)
 
 #Read GRM matrix
 trainrowinds <- which(pheno.cov$train %in% c(TRUE, "true"))
 GRM <- as.matrix(fread("grm.txt.gz"))[trainrowinds, trainrowinds]
-colnames(GRM) <- pheno.cov$IID
-rownames(GRM) <- pheno.cov$IID
+colnames(GRM) <- pheno.cov[trainrowinds,"IID"]
+rownames(GRM) <- pheno.cov[trainrowinds,"IID"]
 
 #Fit null GLMM with GRM only
 model0 <- glmmkin(y ~ SEX + AGE
-                  ,data = pheno.cov
+                  ,data = pheno.cov[trainrowinds,]
                   ,kins = GRM
                   ,id = "IID"
                   ,family = binomial(link = "logit")
@@ -23,4 +22,3 @@ model0 <- glmmkin(y ~ SEX + AGE
 
 #Save variance components estimates
 write.table(cbind(tau=model0$theta["kins1"]), "GMMAT_kins.txt", quote=FALSE, row.names = FALSE)
-

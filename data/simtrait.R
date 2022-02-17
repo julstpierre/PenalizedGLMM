@@ -403,6 +403,8 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
 
               kin = kin,
               
+              s = s,
+              
               causal = causal,
               beta = beta,
               
