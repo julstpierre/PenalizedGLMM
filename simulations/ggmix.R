@@ -91,3 +91,16 @@ for (fpr in seq(0,0.01,0.001)){
   write.csv(cbind(ggmixFPR = ggmixFPR_beta), paste0("ggmix_results_fpr", fpr, ".txt"), quote=FALSE, row.names = FALSE)
   write.csv(cbind(ggmixFPR = ggmixFPR_yhat), paste0("ggmix_fitted_values_fpr", fpr, ".txt"), quote=FALSE, row.names = FALSE)
 }
+
+# Size
+for (size in seq(5,50,5)){
+  
+  #Predict y at a given size
+  v <- apply(ggmix_betas != 0, 2, sum) <= size
+  ggmixsize_beta <- ggmix_betas[,tapply(seq_along(v), v, max)["TRUE"]]
+  ggmixsize_yhat <- predict(fit_ggmix, as.matrix(cbind(Xtest, Gtest)), covariance = GRM[-trainrowinds, trainrowinds])[,tapply(seq_along(v), v, max)["TRUE"]]
+  
+  #Save results
+  write.csv(cbind(ggmixsize = ggmixsize_beta), paste0("ggmix_results_size", size, ".txt"), quote=FALSE, row.names = FALSE)
+  write.csv(cbind(ggmixsize = ggmixsize_yhat), paste0("ggmix_fitted_values_size", size, ".txt"), quote=FALSE, row.names = FALSE)
+}

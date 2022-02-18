@@ -106,7 +106,7 @@ betas.cv_glmnetPC = cv_glmnetPC_β
 yhat = DataFrame()
 
 # Create Arrays for test set
-if isfile(plinkfile)
+if isfile(plinkfile * ".bed")
 	Gnew = convert(Matrix{Float64}, @view(geno[testrowinds,:]), model = ADDITIVE_MODEL, impute = true)
 elseif isfile(snpfile)
 	Gnew = convert.(Float64, Matrix(geno[testrowinds,:]))
@@ -159,6 +159,38 @@ for fpr in [0:0.001:0.01;]
         )
         CSV.write(datadir * "fitted_values_" * "fpr" * string(fpr) * ".txt", 
                   select(yhat, :pglmmFPR, :glmnetFPR, :glmnetPCFPR)
+        )
+end
+
+#-----------------------------------------------------
+# Model size for pglmm and glmnet
+#-----------------------------------------------------
+for size_ in range(5, 50, length = 10)
+
+        # pglmm
+        pglmmsize_ind = findlast(sum(pglmm_β .!= 0, dims = 1) .<= size_)[2]
+        betas.pglmmsize = pglmm_β[:, pglmmsize_ind]
+        yhat.pglmmsize = PenalizedGLMM.predict(modelfit, Xnew, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmsize_ind], outtype = :prob) |> x-> vec(x)
+
+        # glmnet with no PCs
+        glmnetsize_ind = findlast(sum(glmnet_β .!= 0, dims = 1) .<= size_)[2]
+        betas.glmnetsize = glmnet_β[:, glmnetsize_ind]
+        yhat.glmnetsize = GLMNet.predict(fit_glmnet, Xnew, outtype = :prob)[:,glmnetsize_ind]
+
+        # glmnet with 10 PCs
+        glmnetPCsize_ind = findlast(sum(glmnetPC_β .!= 0, dims = 1) .<= size_)[2]
+        betas.glmnetPCsize = glmnetPC_β[:, glmnetPCsize_ind]
+        yhat.glmnetPCsize = GLMNet.predict(fit_glmnetPC, XwithPCnew, outtype = :prob)[:,glmnetPCsize_ind]
+
+        #-----------------------
+        # Save results
+        #-----------------------
+        CSV.write(datadir * "results_" * "size" * string(size_) * ".txt", 
+                  select(betas, :beta, :pglmmsize, :glmnetsize, :glmnetPCsize)
+        )
+
+        CSV.write(datadir * "fitted_values_" * "size" * string(size_) * ".txt", 
+                  select(yhat, :pglmmsize, :glmnetsize, :glmnetPCsize)
         )
 end
 
