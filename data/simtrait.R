@@ -14,7 +14,7 @@
 #'   sigma is missing
 #' @param b0 the true intercept parameter
 #' @param h2_g fraction of variance (logit scale) that is due to causal snps
-#' @param h2_g fraction of variance (logit scale) that is due to random effects
+#' @param h2_b fraction of variance (logit scale) that is due to random effects
 #' @param nPC number of principal components to include in the design matrix
 #'   used for regression adjustment for population structure via principal
 #'   components. This matrix is used as the input in a standard lasso regression
@@ -107,10 +107,20 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   # Fst <- 0.1 # desired FST for the admixed individuals
   geography <- match.arg(geography)
   if (geography == "1d") {
+    
+    if (is.null(Fst)){
+      Fst <- 0.1
+    }
     FF <- 1:k # subpopulation FST vector, up to a scalar
+    
+    if (k <= 10){
+      bias_coeff <- 0.5
+    } else {
+      bias_coeff <- 0.1
+    }
     obj <- bnpsd::admix_prop_1d_linear(n_ind = n,
                                        k_subpops = k,
-                                       bias_coeff = s,
+                                       bias_coeff = bias_coeff,
                                        coanc_subpops = FF,
                                        fst = Fst)
     # Q <- obj$Q
@@ -124,6 +134,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
     kinship <- bnpsd::coanc_to_kinship(coancestry)
     
   } else if (geography == "ind") {
+    
     ngroup <- n / k # equal sized groups
     # here's the labels (for simplicity, list all individuals of S1 first, then S2, then S3)
     labs <- rep(paste0("S", 1:k), each = ngroup)
@@ -135,7 +146,9 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
     
     # desired admixture matrix
     admix_proportions <- bnpsd::admix_prop_indep_subpops(labs)
-    
+    if (is.null(Fst)){
+      Fst <- 0.2
+    }
     # subpopulation FST vector, unnormalized so far
     inbr_subpops <- 1 : k_subpops
     # normalized to have the desired FST
@@ -350,7 +363,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   # Simulate binary traits
   logit <- function(x) log(x / (1 - x))
   expit <- function(x) exp(x) / (1 + exp(x))
-  logit_pi <- logit(b0) - log(1.3) * SEX + log(1.05) * AGE + as.numeric(Xdesign_ %*% beta) + P
+  logit_pi <- logit(b0) - log(1.3) * SEX + log(1.05) * AGE / 10 + as.numeric(Xdesign_ %*% beta) + P
   y <- rbinom(n = length(logit_pi), size = 1, prob = expit(logit_pi))
   
   # partition the data into train/tune/test
@@ -381,8 +394,8 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   ytune <- y[tune_ind]
   ytest <- y[test_ind]
  
-  PC_all <- stats::prcomp(Xkinship, rank = nPC)
-  PC <- stats::prcomp(xkintrain, rank = nPC)
+  PC_all <- stats::prcomp(Xkinship)
+  PC <- stats::prcomp(xkintrain)
   xtrain_lasso <- cbind(xtrain, SEX = SEX[train_ind], AGE = AGE[train_ind], PC$x[,1:nPC])
   xtune_pc <- stats::predict(PC, newdata = xkintune)
   xtune_lasso <- cbind(xtune, SEX = SEX[tune_ind], AGE = AGE[tune_ind], xtune_pc[,1:nPC])
