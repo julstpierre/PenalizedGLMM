@@ -104,24 +104,38 @@ function pglmm(
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, Gstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, intercept)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, Gstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop)
+
+    # If there is an intercept, separate it from betas
+    if intercept
+        a0 = view(path.betas, 1, :)
+        betas = view(path.betas, 2:(p + k), :)
+        k = k - 1
+    else
+        a0 = zeros(p + k)
+        betas = path.betas
+    end
 
     # Return coefficients on original scale
     if !isempty(sX) & !isempty(sG)
-        lmul!(inv(Diagonal(vec([sX; sG]))), path.betas)
-        path.a0 .-= vec([muX muG] * path.betas)
+        lmul!(inv(Diagonal(vec([sX; sG]))), betas)
+        if intercept
+            a0 .-= vec([muX; muG]' * betas)
+        end
     elseif !isempty(sX)
-        k = k - intercept
-        path.betas[1:k,:] = lmul!(inv(Diagonal(vec(sX))), path.betas[1:k,:])
-        path.a0 .-=  vec(muX * path.betas[1:k,:])
+        betas[1:k,:] = lmul!(inv(Diagonal(vec(sX))), betas[1:k,:])
+        if intercept
+            a0 .-=  vec(muX' * betas[1:k,:])
+        end
     elseif !isempty(sG)
-        k = k - intercept
-        path.betas[(k+1):end,:] = lmul!(inv(Diagonal(vec(sG))), path.betas[(k+1):end,:])
-        path.a0 .-=  vec(muG * path.betas[(k+1):end,:])
+        betas[(k+1):end,:] = lmul!(inv(Diagonal(vec(sG))), betas[(k+1):end,:])
+        if intercept
+            a0 .-=  vec(muG' * betas[(k+1):end,:])
+        end
     end
 
     # Return lasso path
-    pglmmPath(nullmodel.family, path.a0, path.betas, nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv)
+    pglmmPath(nullmodel.family, a0, betas, nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -148,8 +162,7 @@ function pglmm_fit(
     irwls_tol::Float64,
     irwls_maxiter::Int64,
     criterion,
-    earlystop::Bool,
-    intercept::Bool
+    earlystop::Bool
 )
     # Initialize array to store output for each λ
     betas = zeros(length(β), K)
@@ -221,11 +234,7 @@ function pglmm_fit(
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0)) || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    if intercept
-        return(a0 = view(betas, 1, 1:i), betas = view(betas, 2:length(β), 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
-    else
-        return(a0 = zeros(i), betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
-    end
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
 end
 
 function pglmm_fit(
@@ -246,8 +255,7 @@ function pglmm_fit(
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
-    earlystop::Bool,
-    intercept::Bool  
+    earlystop::Bool 
 )
     # Initialize array to store output for each λ
     betas = zeros(length(β), K)
@@ -286,11 +294,7 @@ function pglmm_fit(
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF && length(β.nzind) > sum(p_f .==0))|| pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    if intercept
-        return(a0 = view(betas, 1, 1:i), betas = view(betas, 2:length(β), 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
-    else
-        return(a0 = zeros(i), betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
-    end
+    return(betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
 end
 
 # Function to perform coordinate descent with a lasso penalty
@@ -324,9 +328,10 @@ function cd_lasso(
         if cd_iter == 1 || converged
             # Non-genetic covariates
             for j in 1:k
-                v = dot(view(X, :, j), Diagonal(w), r)
+                Xj = view(X, :, j)
+                v = dot(Xj, Diagonal(w), r)
                 λj = λ * p_f[j]
-                Swxxj = dot(view(X, :, j), Diagonal(w), view(X, :, j))
+                Swxxj = dot(Xj, Diagonal(w), Xj)
 
                 last_β = β[j]
                 if last_β != 0
@@ -336,7 +341,7 @@ function cd_lasso(
                     abs(v) < λj && continue
                 end
                 new_β = softtreshold(v, λj) / Swxxj
-                r += view(X, :, j) * (last_β - new_β)
+                r += Xj * (last_β - new_β)
 
                 maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
                 β[j] = new_β
@@ -344,9 +349,10 @@ function cd_lasso(
 
             # Genetic covariates
             for j in 1:size(G, 2)
-                v = dot(view(G, :, j), Diagonal(w), r)
+                Gj = view(G, :, j)
+                v = dot(Gj, Diagonal(w), r)
                 λj = λ * p_f[k + j]
-                Swxxj = dot(view(G, :, j), Diagonal(w), view(G, :, j))
+                Swxxj = dot(Gj, Diagonal(w), Gj)
 
                 last_β = β[k + j]
                 if last_β != 0
@@ -356,7 +362,7 @@ function cd_lasso(
                     abs(v) < λj && continue
                 end
                 new_β = softtreshold(v, λj) / Swxxj
-                r += view(G, :, j) * (last_β - new_β)
+                r += Gj * (last_β - new_β)
 
                 maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
                 β[k + j] = new_β
@@ -388,10 +394,11 @@ function cd_lasso(
             last_β = β[j]
             last_β == 0 && continue
             
-            Swxxj = dot(view(X, :, j), Diagonal(w), view(X, :, j))
-            v = dot(view(X, :, j), Diagonal(w), r) + last_β * Swxxj
+            Xj = view(X, :, j)
+            Swxxj = dot(Xj, Diagonal(w), Xj)
+            v = dot(Xj, Diagonal(w), r) + last_β * Swxxj
             new_β = softtreshold(v, λ * p_f[j]) / Swxxj
-            r += view(X, :, j) * (last_β - new_β)
+            r += Xj * (last_β - new_β)
 
             maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
             β[j] = new_β
@@ -402,10 +409,11 @@ function cd_lasso(
             last_β = β[j]
             last_β == 0 && continue
             
-            Swxxj = dot(view(G, :, j-k), Diagonal(w), view(G, :, j-k))
-            v = dot(view(G, :, j-k), Diagonal(w), r) + last_β * Swxxj
+            Gj = view(G, :, j-k)
+            Swxxj = dot(Gj, Diagonal(w), Gj)
+            v = dot(Gj, Diagonal(w), r) + last_β * Swxxj
             new_β = softtreshold(v, λ * p_f[j]) / Swxxj
-            r += view(G, :, j-k) * (last_β - new_β)
+            r += Gj * (last_β - new_β)
 
             maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
             β[j] = new_β
@@ -540,7 +548,7 @@ function LogisticDeviance(y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float6
 end
 
 function NormalDeviance(r::Vector{Float64}, w::Vector{Float64})
-    dot(w, r.^2)
+    dot(r, Diagonal(w), r)
 end
 
 # Standardize predictors for lasso
