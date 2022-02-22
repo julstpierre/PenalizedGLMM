@@ -109,12 +109,12 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   if (geography == "1d") {
     
     if (is.null(Fst)){
-      Fst <- 0.1
+      Fst <- 0.2
     }
     FF <- 1:k # subpopulation FST vector, up to a scalar
     
     if (k <= 10){
-      bias_coeff <- 0.5
+      bias_coeff <- 0.25
     } else {
       bias_coeff <- 0.1
     }

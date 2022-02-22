@@ -3,7 +3,7 @@
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
 args <- commandArgs(TRUE)
-# args = c("0.5", "0.2", "0", "0.1", "10000", "0.005", "10", "NONE", "1d", "")
+# args = c("0.5", "0.4", "0", "0.1", "5000", "0.01", "10", "NONE", "1d", "")
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g <- as.numeric(args[1])
