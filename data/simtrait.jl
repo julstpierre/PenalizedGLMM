@@ -46,12 +46,19 @@ end
 
 n = nrow(dat)
 
-# Randomly sample subjects by family for training and test sets
+# Randomly sample subjects by family for training, tune and test sets
 nfams = length(unique(dat.famid))
 train_ids = sample(unique(dat.famid), Int(ceil(nfams * 0.80)); replace = false)
+tune_ids = sample(setdiff(unique(dat.famid), train_ids), Int(ceil(length(setdiff(unique(dat.famid), train_ids)) * 0.5)); replace = false)
+test_ids = setdiff(unique(dat.famid), [train_ids; tune_ids])
 
 # Add indicator variable for training subjects
-dat.train = [dat.famid[i] in train_ids for i in 1:size(dat, 1)]
+dat.set = Array{String, 1}(undef, n)
+dat.set[[dat.famid[i] in train_ids for i in 1:size(dat, 1)]] .= "train"
+dat.set[[dat.famid[i] in tune_ids for i in 1:size(dat, 1)]] .= "tune"
+dat.set[[dat.famid[i] in test_ids for i in 1:size(dat, 1)]] .= "test"
+
+train = [dat.famid[i] in train_ids for i in 1:size(dat, 1)]
 
 #-------------------------------------------------------------------------
 # Load genotype Data
@@ -62,7 +69,7 @@ UKBB = SnpArray("UKBB/UKBB.bed")
 # Remove SNPs with MAF = 0 or 0.5 either in the train set or in the train+test set
 _maf = DataFrame()
 _maf.ALL = maf(@view(UKBB[:, :]))
-_maf.ALLtrain = maf(@view(UKBB[dat.train, :]))
+_maf.ALLtrain = maf(@view(UKBB[train, :]))
 snps = findall((_maf.ALL .!= 0) .& (_maf.ALL .!= 0.5) .& (_maf.ALLtrain .!= 0) .& (_maf.ALLtrain .!= 0.5))
 
 # Sample p candidate SNPs randomly accross genome, convert to additive model and impute
@@ -106,14 +113,14 @@ end
 #--------------------------------------------------------------------
 # Compute singular value decomposition on training set only
 X_grm = convert(Matrix{Float64}, @view(UKBB[:, grm_inds]), impute = true, center = true, scale = true)
-U, S, V = svd(X_grm[dat.train,:])
+U, S, V = svd(X_grm[train,:])
 
 # PCs for training set are columns of U
 PCs = Array{Float64}(undef, n, 10)
-PCs[dat.train,:] = U[:,1:10]
+PCs[train,:] = U[:,1:10]
 
-# PCs for test set are obtained as projection from training PCs
-PCs[dat.train .!= 1,:] = (X_grm[dat.train .!= 1,:] * V * inv(Diagonal(S)))[:,1:10]
+# PCs for tune and test sets are obtained as projection from training PCs
+PCs[train .!= 1,:] = (X_grm[train .!= 1,:] * V * inv(Diagonal(S)))[:,1:10]
 
 # ------------------------------------------------------------------------
 # Simulate phenotypes

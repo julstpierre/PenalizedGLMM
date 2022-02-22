@@ -52,7 +52,7 @@ admixed <- gen_structured_model(n = n,
                                 k = K, s = 0.5, Fst = NULL,
                                 b0 = pi0, nPC = 10,
                                 h2_g = h2_g, h2_b = h2_b,
-                                train_tune_test = c(0.8, 0, 0.2)
+                                train_tune_test = c(0.8, 0.1, 0.1)
 )
 
 #-----------------------
@@ -80,27 +80,30 @@ close(gz)
 # Phenotype
 y <- vector("numeric", length = n)
 y[admixed$train_ind] <- admixed$ytrain
+y[admixed$tune_ind] <- admixed$ytune
 y[admixed$test_ind] <- admixed$ytest
 
 # Covariates
 X <- array(dim = c(n, ncol(admixed$xtrain_lasso) - p_design))
 colnames(X) <- colnames(admixed$xtrain_lasso[ ,-c(1:p_design)])
 X[admixed$train_ind, ] <- admixed$xtrain_lasso[ ,-c(1:p_design)]
+X[admixed$tune_ind, ] <- admixed$xtune_lasso[ ,-c(1:p_design)]
 X[admixed$test_ind, ] <- admixed$xtest_lasso[ ,-c(1:p_design)]
 
 # Genetic predictors
 G <- array(dim = c(n, p_design))
 colnames(G) <- colnames(admixed$xtrain_lasso[ , 1:p_design])
 G[admixed$train_ind, ] <- admixed$xtrain_lasso[ ,1:p_design]
+G[admixed$tune_ind, ] <- admixed$xtune_lasso[ , 1:p_design]
 G[admixed$test_ind, ] <- admixed$xtest_lasso[ , 1:p_design]
 
 # CSV file containing covariates
-final_dat <- cbind(IID = paste0("ID", 1:n), X, train = c(1:n) %in% admixed$train_ind, y)
+final_dat <- cbind(IID = paste0("ID", 1:n), X, set = sapply(1:n, function(i) ifelse(i %in% admixed$train_ind, "train", ifelse(i %in% admixed$tune_ind, "tune", "test"))), y)
 write.csv(final_dat, paste0(args[10], "covariate.txt"), quote = FALSE, row.names = FALSE)
 
 # CSV file containing genetic predictors
 write.csv(G, paste0(args[10], "snps.txt"), quote = FALSE, row.names = FALSE)
 
 # CSV file containing beta (on original genotype scale) for each SNP
-beta = admixed$beta / admixed$std
+beta <- admixed$beta / admixed$std
 write.csv(cbind(beta = beta), paste0(args[10], "betas.txt"), quote = FALSE, row.names = FALSE)

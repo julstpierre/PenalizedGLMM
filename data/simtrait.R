@@ -109,7 +109,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   if (geography == "1d") {
     
     if (is.null(Fst)){
-      Fst <- 0.2
+      Fst <- 0.1
     }
     FF <- 1:k # subpopulation FST vector, up to a scalar
     
@@ -347,13 +347,14 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   
   kin <- 2 * PhiHat
   
-  tt <- sigma2_b * kin
-  if (!all(eigen(tt)$values > 0)) {
-    message("sigma2_b * kin not PD, using Matrix::nearPD")
-    tt <- Matrix::nearPD(tt)$mat
+  if (!all(eigen(kin)$values > 0)) {
+    message("kin not PD, using Matrix::nearPD")
+    tt <- Matrix::nearPD(kin)$mat
+  } else {
+    tt <- kin
   }
   
-  P <- MASS::mvrnorm(1, mu = rep(0, n), Sigma = tt)
+  P <- MASS::mvrnorm(1, mu = rep(0, n), Sigma = sigma2_b * tt)
 
   # Standardize Xdesign
   mu <- apply(Xdesign, 2, mean)
