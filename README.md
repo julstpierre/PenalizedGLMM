@@ -9,18 +9,19 @@ This package requires Julia v1.6.2 or later. The package is not yet registered a
 
 ```julia
 Pkg.add(url = "https://github.com/julstpierre/PenalizedGLMM.jl")
+using PenalizedGLMM
 ```
 
 For this tutorial, we will be needing the following packages:
 
 
 ```julia
-using PenalizedGLMM, CSV, DataFrames, StatsBase, GLM, SnpArrays, ROCAnalysis
+using CSV, DataFrames, StatsBase, GLM, SnpArrays, ROCAnalysis
 ```
 
 ## Example data sets
 
-The data folder of the package contains genetic data for 2504 individuals from the 1000Genomes Project in PLINK format. The covariate.txt file contains SEX and binary phenotype info for all individuals. Finally, we also include a GRM in the form of a compressed .txt file that was calculated using the function `grm` from [SnpArrays.jl](https://openmendel.github.io/SnpArrays.jl/latest/). 
+The data folder of the package contains genetic data for 2504 individuals and 5000 SNPs from the 1000Genomes Project in PLINK format. The covariate.txt file contains SEX covariate and simulated binary phenotype for all individuals. Finally, we also include a GRM in the form of a compressed .txt file that was calculated using the function `grm` from [SnpArrays.jl](https://openmendel.github.io/SnpArrays.jl/latest/). 
 
 
 ```julia
@@ -32,7 +33,7 @@ const grmfile = datadir * "grm.txt.gz";
 
 ## 1. Estimate the variance components under the null
 
-We read the example covariate file and split the subjects into train and test sets.
+We read the example covariate file and split the subjects into train and test sets:
 
 
 ```julia
@@ -41,7 +42,7 @@ trainrowinds = sample(1:nrow(covdf), Int(floor(nrow(covdf) * 0.8)); replace = fa
 testrowinds = setdiff(1:nrow(covdf), trainrowinds);
 ```
 
-We fit the null logistic mixed model on the training set, with SEX as fixed effect and one random effect with variance-covariance structure parametrized by the GRM.
+We fit the null logistic mixed model on the training set, with SEX as fixed effect and one random effect with variance-covariance structure parametrized by the GRM:
 
 
 ```julia
@@ -52,7 +53,7 @@ nullmodel = pglmm_null(@formula(y ~ SEX)
                       ,grminds = trainrowinds);
 ```
 
-The estimated variance components of the models are equal to
+By default, the dispersion parameter φ for the binomial distribution is equal to 1. The estimated variance components are equal to
 
 
 ```julia
@@ -82,7 +83,7 @@ nullmodel.α
 
 
 
-We can check that the AIREML algorithm has effectively converged
+We can check that the AIREML algorithm has effectively converged:
 
 
 ```julia
@@ -98,14 +99,14 @@ nullmodel.converged
 
 ## 2. Fit a penalized logistic mixed model
 
-After obtaining the variance components estimates under the null, we fit a penalized logistic mixed model using a lasso regularization term on the SNP effects in order to perform variable selection.
+After obtaining the variance components estimates under the null, we fit a penalized logistic mixed model using a lasso regularization term on the SNP effects in order to perform variable selection:
 
 
 ```julia
 modelfit = pglmm(nullmodel, plinkfile, geneticrowinds = trainrowinds);
 ```
 
-The coefficients for each value of λ are stored in `modelfit.betas`
+The coefficients for each value of λ are stored in `modelfit.betas`:
 
 
 ```julia
@@ -145,7 +146,7 @@ modelfit.betas
 
 
 
- We can calculate the number of non-zero coefficients for each value of λ
+ We can calculate the number of non-zero coefficients for each value of λ:
 
 
 ```julia
@@ -160,7 +161,7 @@ modelfit.betas
 
 
 
-To find the optimal λ, we can use AIC or BIC
+To find the optimal λ, we can use AIC or BIC as model selection criteria:
 
 
 ```julia
@@ -168,9 +169,9 @@ pglmmAIC = PenalizedGLMM.GIC(modelfit, :AIC);
 pglmmBIC = PenalizedGLMM.GIC(modelfit, :BIC);
 ```
 
-## 3. Calculate Polygenic Risk Score (PRS) on test individuals
+## 3. Calculate Polygenic Risk Score (PRS) on test set
 
-To make predictions on the test set, we convert PLINK genotype to matrix, using the package [SnpArrays.jl](https://openmendel.github.io/SnpArrays.jl/latest/). We convert to additive model (default) and impute missing values.
+To make predictions on the test set, we convert PLINK genotype to matrix, using the package [SnpArrays.jl](https://openmendel.github.io/SnpArrays.jl/latest/). We convert to additive model (default) and impute missing values:
 
 
 ```julia
@@ -178,14 +179,14 @@ geno = SnpArray(plinkfile * ".bed")
 Gtest = convert(Matrix{Float64}, @view(geno[testrowinds,:]), model = ADDITIVE_MODEL, impute = true);
 ```
 
-We combine genotype with the covariate(s) into an array.
+We combine genotype with the covariate(s) into an array:
 
 
 ```julia
 Xtest = [covdf[testrowinds, "SEX"] Gtest];
 ```
 
-Finally, we can make prediction using the `PenalizedGLMM.predict` function. By default, predictions for the full lasso path are calculated. We can also obtain predictions for optimal λ only, for example by comparing predictions obtained using AIC and BIC.
+Finally, we can make prediction using the `PenalizedGLMM.predict` function. By default, predictions for the full Lasso path are calculated. We can also obtain predictions for optimal λ only, for example by comparing predictions obtained using AIC and BIC:
 
 
 ```julia
@@ -209,7 +210,7 @@ first(yhat, 5)
 
 
 
-We can determine which model provides best prediction accuracy by comparing AUCs for the PRSs obtained via AIC and BIC. We use the [ROCAnalysis.jl](https://juliapackages.com/p/rocanalysis) package to calculate AUC for each model.
+We can determine which model provides best prediction accuracy by comparing AUCs for the PRSs obtained via AIC and BIC. We use the [ROCAnalysis.jl](https://juliapackages.com/p/rocanalysis) package to calculate AUC for each model:
 
 
 ```julia
