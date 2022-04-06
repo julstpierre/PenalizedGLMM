@@ -46,11 +46,10 @@ We fit the null logistic mixed model on the training set, with SEX as fixed effe
 
 ```julia
 nullmodel = pglmm_null(@formula(y ~ SEX) 
-                       ,covfile
-                       ,grmfile 
-                       ,covrowinds = trainrowinds 
-                       ,grminds = trainrowinds
-);
+                      ,covfile
+                      ,grmfile 
+                      ,covrowinds = trainrowinds 
+                      ,grminds = trainrowinds);
 ```
 
 The estimated variance components of the models are equal to
@@ -193,14 +192,15 @@ Finally, we can make prediction using the `PenalizedGLMM.predict` function. By d
 
 ```julia
 yhat = PenalizedGLMM.predict(modelfit
-                            , Xtest
-                            , grmfile
-                            , grmrowinds = testrowinds
-                            , grmcolinds = trainrowinds
-                            , s = [pglmmAIC, pglmmBIC]
-                            , outtype = :prob
+                            ,Xtest
+                            ,grmfile
+                            ,grmrowinds = testrowinds
+                            ,grmcolinds = trainrowinds
+                            ,s = [pglmmAIC, pglmmBIC]
+                            ,outtype = :prob
                             ) |>
         x-> DataFrame(x, [:AIC, :BIC])
+
 first(yhat, 5)
 ```
 
@@ -217,6 +217,7 @@ We can determine which model provides best prediction accuracy by comparing AUCs
 ```julia
 ctrls = (covdf[testrowinds,:y] .== 0)
 cases = (covdf[testrowinds,:y] .== 1)
+
 [ROCAnalysis.auc(roc(yhat[ctrls, i], yhat[cases, i])) for i in ("AIC", "BIC")]' |> 
     x-> DataFrame(Matrix(x), [:AIC, :BIC])
 ```
