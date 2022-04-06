@@ -45,7 +45,12 @@ We fit the null logistic mixed model on the training set, with SEX as fixed effe
 
 
 ```julia
-nullmodel = pglmm_null(@formula(y ~ SEX), covfile, grmfile, covrowinds = trainrowinds, grminds = trainrowinds);
+nullmodel = pglmm_null(@formula(y ~ SEX) 
+                       ,covfile
+                       ,grmfile 
+                       ,covrowinds = trainrowinds 
+                       ,grminds = trainrowinds
+);
 ```
 
 The estimated variance components of the models are equal to
@@ -166,18 +171,6 @@ pglmmBIC = PenalizedGLMM.GIC(modelfit, :BIC);
 
 The number of selected predictors using AIC and BIC are equal to
 
-
-```julia
-model_size = [length(findall(x -> x != 0, view(modelfit.betas, :,k))) for k in (pglmmAIC, pglmmBIC)]' |> x-> DataFrame(Matrix(x), [:AIC, :BIC])
-```
-
-
-
-
-<div class="data-frame"><p>1 rows × 2 columns</p><table class="data-frame"><thead><tr><th></th><th>AIC</th><th>BIC</th></tr><tr><th></th><th title="Int64">Int64</th><th title="Int64">Int64</th></tr></thead><tbody><tr><th>1</th><td>88</td><td>23</td></tr></tbody></table></div>
-
-
-
 ## 3. Calculate Polygenic Risk Score (PRS) on test individuals
 
 To make predictions on the test set, we convert PLINK genotype to matrix, using the package [SnpArrays.jl](https://openmendel.github.io/SnpArrays.jl/latest/). We convert to additive model (default) and impute missing values.
@@ -199,7 +192,15 @@ Finally, we can make prediction using the `PenalizedGLMM.predict` function. By d
 
 
 ```julia
-yhat = PenalizedGLMM.predict(modelfit, Xtest, grmfile, grmrowinds = testrowinds, grmcolinds = trainrowinds, s = [pglmmAIC, pglmmBIC], outtype = :prob) |> x-> DataFrame(x, [:AIC, :BIC])
+yhat = PenalizedGLMM.predict(modelfit
+                            , Xtest
+                            , grmfile
+                            , grmrowinds = testrowinds
+                            , grmcolinds = trainrowinds
+                            , s = [pglmmAIC, pglmmBIC]
+                            , outtype = :prob
+                            ) |>
+        x-> DataFrame(x, [:AIC, :BIC])
 first(yhat, 5)
 ```
 
@@ -214,9 +215,10 @@ We can determine which model provides best prediction accuracy by comparing AUCs
 
 
 ```julia
-ctrls = covdf[testrowinds,:y] .== 0
-cases = covdf[testrowinds,:y] .== 1
-[ROCAnalysis.auc(roc(yhat[ctrls, i], yhat[cases, i])) for i in ("AIC", "BIC")]' |> x-> DataFrame(Matrix(x), [:AIC, :BIC])
+ctrls = (covdf[testrowinds,:y] .== 0)
+cases = (covdf[testrowinds,:y] .== 1)
+[ROCAnalysis.auc(roc(yhat[ctrls, i], yhat[cases, i])) for i in ("AIC", "BIC")]' |> 
+    x-> DataFrame(Matrix(x), [:AIC, :BIC])
 ```
 
 
@@ -226,11 +228,12 @@ cases = covdf[testrowinds,:y] .== 1
 
 
 
-We see that both models result in comparable prediction accuracies, but the model using BIC has selected almost 4 times less predictors than the model based on AIC.
+We see that both models result in comparable prediction accuracies, but the model using BIC has selected almost 4 times less predictors than the model based on AIC:
 
 
 ```julia
-model_size
+[length(findall(x -> x != 0, view(modelfit.betas, :,k))) for k in (pglmmAIC, pglmmBIC)]' |> 
+    x-> DataFrame(Matrix(x), [:AIC, :BIC])
 ```
 
 
