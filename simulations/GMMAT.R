@@ -7,7 +7,7 @@ library(data.table)
 pheno.cov <- read.table("covariate.txt", sep=",", header = T)
 
 #Read GRM matrix
-trainrowinds <- which(pheno.cov$train %in% c(TRUE, "true"))
+trainrowinds <- which(pheno.cov$set %in% c("train"))
 GRM <- as.matrix(fread("grm.txt.gz"))[trainrowinds, trainrowinds]
 colnames(GRM) <- pheno.cov[trainrowinds,"IID"]
 rownames(GRM) <- pheno.cov[trainrowinds,"IID"]

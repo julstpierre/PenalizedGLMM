@@ -41,14 +41,14 @@ end
 # Combine into a DataFrame
 dat = @chain CSV.read("UKBB/covariate.txt", DataFrame) begin
 	rightjoin(samples, on = [:IID, :FID])
-    @select!(:FID, :IID, :SEX, :AGE, :famid)
+    @select!(:FID, :IID, :SEX, :AGE, :PCA1, :PCA2, :PCA3, :PCA4, :PCA5, :PCA6, :PCA7, :PCA8, :PCA9, :PCA10, :famid)
+    rename!(:PCA1 => :PC1, :PCA2 => :PC2, :PCA3 => :PC3, :PCA4 => :PC4, :PCA5 => :PC5, :PCA6 => :PC6, :PCA7 => :PC7, :PCA8 => :PC8, :PCA9 => :PC9, :PCA10 => :PC10)
 end
-
 n = nrow(dat)
 
 # Randomly sample subjects by family for training, tune and test sets
 nfams = length(unique(dat.famid))
-train_ids = sample(unique(dat.famid), Int(ceil(nfams * 0.80)); replace = false)
+train_ids = [19; sample(unique(dat.famid), Int(floor(nfams * 0.4)); replace = false)]
 tune_ids = sample(setdiff(unique(dat.famid), train_ids), Int(ceil(length(setdiff(unique(dat.famid), train_ids)) * 0.5)); replace = false)
 test_ids = setdiff(unique(dat.famid), [train_ids; tune_ids])
 
@@ -59,6 +59,10 @@ dat.set[[dat.famid[i] in tune_ids for i in 1:size(dat, 1)]] .= "tune"
 dat.set[[dat.famid[i] in test_ids for i in 1:size(dat, 1)]] .= "test"
 
 train = [dat.famid[i] in train_ids for i in 1:size(dat, 1)]
+
+sum(dat.set .== "train") / n
+sum(dat.set .== "tune") / n
+sum(dat.set .== "test") / n
 
 #-------------------------------------------------------------------------
 # Load genotype Data
@@ -108,27 +112,23 @@ open(GzipCompressorStream, ARGS_[8] * "grm.txt.gz", "w") do stream
     CSV.write(stream, DataFrame(GRM, :auto))
 end
 
-#--------------------------------------------------------------------
-# Calculate PCs on the training subjects and project them on test set
-#--------------------------------------------------------------------
-# Compute singular value decomposition on training set only
-X_grm = convert(Matrix{Float64}, @view(UKBB[:, grm_inds]), impute = true, center = true, scale = true)
-U, S, V = svd(X_grm[train,:])
+# #--------------------------------------------------------------------
+# # Calculate PCs on the training subjects and project them on test set
+# #--------------------------------------------------------------------
+# # Compute singular value decomposition on training set only
+# X_grm = convert(Matrix{Float64}, @view(UKBB[:, grm_inds]), impute = true, center = true, scale = true)
+# U, S, V = svd(X_grm[train,:])
 
-# PCs for training set are columns of U
-PCs = Array{Float64}(undef, n, 10)
-PCs[train,:] = U[:,1:10]
+# # PCs for training set are columns of U
+# PCs = Array{Float64}(undef, n, 10)
+# PCs[train,:] = U[:,1:10]
 
-# PCs for tune and test sets are obtained as projection from training PCs
-PCs[train .!= 1,:] = (X_grm[train .!= 1,:] * V * inv(Diagonal(S)))[:,1:10]
+# # PCs for tune and test sets are obtained as projection from training PCs
+# PCs[train .!= 1,:] = (X_grm[train .!= 1,:] * V * inv(Diagonal(S)))[:,1:10]
 
 # ------------------------------------------------------------------------
 # Simulate phenotypes
 # ------------------------------------------------------------------------
-# Keep only individuals belonging to K ancestries
-dat.PC1 = PCs[:,1]; dat.PC2 = PCs[:,2]; dat.PC3 = PCs[:,3]; dat.PC4 = PCs[:,4]; dat.PC5 = PCs[:,5];
-dat.PC6 = PCs[:,6]; dat.PC7 = PCs[:,7]; dat.PC8 = PCs[:,8]; dat.PC9 = PCs[:,9]; dat.PC10 = PCs[:,10];
-
 # Variance components
 sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10)
 sigma2_g = h2_g / (1 - h2_g - h2_b - h2_d) * sigma2_e
@@ -142,7 +142,7 @@ W[s] .= sigma2_g/length(s)
 beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate random effects
-b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
+b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(n)
 
 # Standardize G
 mu = mean(G, dims = 1) 

@@ -73,7 +73,7 @@
 
 gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10,
                                  h2_g, h2_b, geography = c("ind", "1d", "circ"),
-                                 percent_causal, percent_overlap, train_tune_test = c(0.6, 0.2, 0.2)) {
+                                 percent_causal, percent_overlap, train_tune_test = c(0.8, 0.1, 0.1)) {
   
   if(sum(train_tune_test) != 1) stop("Training/tune/test split must be equal to 1")
   
@@ -109,12 +109,12 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   if (geography == "1d") {
     
     if (is.null(Fst)){
-      Fst <- 0.1
+      Fst <- 0.2
     }
     FF <- 1:k # subpopulation FST vector, up to a scalar
     
-    if (k <= 10){
-      bias_coeff <- 0.25
+    if (k <= 5){
+      bias_coeff <- 0.5
     } else {
       bias_coeff <- 0.1
     }
@@ -147,7 +147,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
     # desired admixture matrix
     admix_proportions <- bnpsd::admix_prop_indep_subpops(labs)
     if (is.null(Fst)){
-      Fst <- 0.2
+      Fst <- 0.3
     }
     # subpopulation FST vector, unnormalized so far
     inbr_subpops <- 1 : k_subpops

@@ -7,3 +7,4 @@ data/geno.bim
 data/geno.fam
 data/grm.txt.gz
 simulations/results/
+README.ipynb

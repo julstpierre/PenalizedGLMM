@@ -578,7 +578,7 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool =
     X, mu, s
 end
 
-# Predict phenotype for normal trait
+# Predict phenotype
 function predict(path::pglmmPath, 
                   X::AbstractMatrix{T}, 
                   grmfile::AbstractString; 
