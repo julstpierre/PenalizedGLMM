@@ -168,8 +168,6 @@ pglmmAIC = PenalizedGLMM.GIC(modelfit, :AIC);
 pglmmBIC = PenalizedGLMM.GIC(modelfit, :BIC);
 ```
 
-The number of selected predictors using AIC and BIC are equal to
-
 ## 3. Calculate Polygenic Risk Score (PRS) on test individuals
 
 To make predictions on the test set, we convert PLINK genotype to matrix, using the package [SnpArrays.jl](https://openmendel.github.io/SnpArrays.jl/latest/). We convert to additive model (default) and impute missing values.
