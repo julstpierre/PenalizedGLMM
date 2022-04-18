@@ -135,7 +135,7 @@ function pglmm(
     end
 
     # Return lasso path
-    pglmmPath(nullmodel.family, a0, betas, nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv)
+    pglmmPath(nullmodel.family, a0, betas, nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv, nullmodel.τ)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -462,6 +462,7 @@ struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     fitted_values                               # fitted_values
     y::Union{Vector{Int64}, Vector{Float64}}    # eigenvalues vector
     UD_inv::Matrix{Float64}                     # eigenvectors matrix times diagonal weights matrix
+    τ::Vector{Float64}                        # estimated variance components
 end
 
 function show(io::IO, g::pglmmPath)
@@ -584,23 +585,28 @@ function predict(path::pglmmPath,
                   grmfile::AbstractString; 
                   grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  M::Union{Nothing, Vector{Any}} = nothing,
                   s::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   fixed_effects_only::Bool = false,
                   outtype = :response
                  ) where T
 
     # read file containing the m x (N-m) kinship matrix between m test and (N-m) training subjects
-    Kins = open(GzipDecompressorStream, grmfile, "r") do stream
+    GRM = open(GzipDecompressorStream, grmfile, "r") do stream
         Symmetric(Matrix(CSV.read(stream, DataFrame)))
     end
 
     if !isnothing(grmrowinds)
-        Kins = Kins[grmrowinds, :]
+        GRM = GRM[grmrowinds, :]
     end
 
     if !isnothing(grmcolinds)
-        Kins = Kins[:, grmcolinds]
+        GRM = GRM[:, grmcolinds]
     end
+
+    # Covariance matrix between test and training subjects
+    V = isnothing(M) ? push!(Any[], GRM) : reverse(push!(M, GRM))
+    Σ_12 = sum(path.τ .* V)
 
     # Number of predictions to compute. User can provide index s for which to provide predictions, 
     # rather than computing predictions for the whole path.
@@ -611,9 +617,9 @@ function predict(path::pglmmPath,
 
     if fixed_effects_only == false
         if path.family == Binomial()
-            η += Kins * (path.y .- path.fitted_values[:,s])
+            η += Σ_12 * (path.y .- path.fitted_values[:,s])
         elseif path.family == Normal()
-            η += Kins * path.UD_inv * path.fitted_values[:,s]
+            η += Σ_12 * path.UD_inv * path.fitted_values[:,s]
         end
     end
 
