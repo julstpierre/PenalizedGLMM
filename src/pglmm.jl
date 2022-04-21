@@ -135,7 +135,7 @@ function pglmm(
     end
 
     # Return lasso path
-    pglmmPath(nullmodel.family, a0, betas, nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv, nullmodel.τ)
+    pglmmPath(nullmodel.family, a0, betas, nulldev, path.pct_dev, path.λ, 0, path.fitted_values, y, UD_inv, nullmodel.τ, intercept)
 end
 
 # Controls early stopping criteria with automatic λ
@@ -462,7 +462,8 @@ struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     fitted_values                               # fitted_values
     y::Union{Vector{Int64}, Vector{Float64}}    # eigenvalues vector
     UD_inv::Matrix{Float64}                     # eigenvectors matrix times diagonal weights matrix
-    τ::Vector{Float64}                        # estimated variance components
+    τ::Vector{Float64}                        	# estimated variance components
+    intercept::Bool				# boolean for intercept
 end
 
 function show(io::IO, g::pglmmPath)
@@ -637,7 +638,7 @@ function GIC(path::pglmmPath, criterion)
     # Obtain number of rows (n), predictors (p) and λ values (K)
     n = size(path.y, 1)
     p, K = size(path.betas)
-    df = [length(findall(x -> x != 0, vec(view(path.betas, :, k)))) for k in 1:K] + length(path.τ)
+    df = path.intercept .+ [length(findall(x -> x != 0, vec(view(path.betas, :, k)))) for k in 1:K] .+ length(path.τ)
 
     # Define GIC criterion
     if criterion == :BIC
