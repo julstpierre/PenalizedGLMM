@@ -1,17 +1,24 @@
 """
-    pglmm(plinkfile; kwargs...)
+    pglmm(nullmode, plinkfile; kwargs...)
 # Positional arguments 
-- `nullmodel`: Null model obtained by fitting pglmm_null.
+- `nullmodel`: null model obtained by fitting pglmm_null.
 - `plinkfile::AbstractString`: PLINK file name containing genetic information,
     without the .bed, .fam, or .bim extensions. Moreover, bed, bim, and fam file with 
     the same `geneticfile` prefix need to exist.
 # Keyword arguments
+- `snpfile::Union{Nothing, AbstractString}`: TXT file name containing genetic data if not in PLINK format.
 - `snpmodel`: `ADDITIVE_MODEL` (default), `DOMINANT_MODEL`, or `RECESSIVE_MODEL`.
 - `snpinds::Union{Nothing,AbstractVector{<:Integer}}`: SNP indices for bed/vcf file.
 - `geneticrowinds::Union{Nothing,AbstractVector{<:Integer}}`: sample indices for bed/vcf file.
 - `irwls_tol::Float64` = 1e-7 (default)`: tolerance for the IRWLS loop.
-- `irwls_maxiter::Integer = 300 (default)`: maximum number of Newton iterations for the IRWLS loop.
-- `criterion = :coef (default)`: criterion for coordinate descent convergence.
+- `irwls_maxiter::Integer = 500 (default)`: maximum number of iterations for the IRWLS loop.
+- `K_::Union{Nothing, Integer} = nothing (default)`: stop the full lasso path search after K_th value of λ.
+- `verbose::Bool = false (default)`: print number of irwls iterations at each value of λ.
+- `standardize_X::Bool = true (default)`: standardize non-genetic covariates. Coefficients are returned on original scale.
+- `standardize_G::Bool = true (default)`: standardize genetic predictors. Coefficients are returned on original scale.
+- `standardize_weights::Bool = false (default)`: standardize weights so their sum is equal to 1.
+- `criterion`: criterion for coordinate descent convergence. Can be equal to `:coef` (default) or `:obj`.
+- `earlystop::Bool = true (default)`: should full lasso path search stop earlier if deviance change is smaller than MIN_DEV_FRAC_DIFF or higher than MAX_DEV_FRAC ? 
 """
 function pglmm(
     # positional arguments

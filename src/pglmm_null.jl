@@ -1,13 +1,17 @@
 """
-    pglmm_null(nullformula, covfile, geneticfile; kwargs...)
+    pglmm_null(nullformula, covfile, grmfile; kwargs...)
 # Positional arguments 
 - `nullformula::FormulaTerm`: formula for the null model.
 - `covfile::AbstractString`: covariate file (csv) with one header line, including the phenotype.
 - `grmfile::AbstractString`: GRM file name.
 # Keyword arguments
 - `covrowinds::Union{Nothing,AbstractVector{<:Integer}}`: sample indices for covariate file.
+- `grminds::Union{Nothing,AbstractVector{<:Integer}}`: sample indices for GRM file.
 - `family::UnivariateDistribution:` `Binomial()` (default)   
 - `link::GLM.Link`: `LogitLink()` (default).
+- `M::Union{Nothing, Vector{Any}}`: vector containing other similarity matrices if >1 random effect is included.
+- `tol::Float64 = 1e-5 (default)`: tolerance for convergence of PQL estimates.
+- `maxiter::Integer = 500 (default)`: maximum number of iterations for AI-REML algorithm.
 """
 function pglmm_null(
     # positional arguments
