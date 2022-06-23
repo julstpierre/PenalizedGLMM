@@ -6,49 +6,6 @@ library(ggplot2)
 library(ggpubr)
 
 #----------------------------
-# False positive rate (FPR)
-#----------------------------
-# Function that reads file with results and create a plot using ggplot2
-fpr2plot <- function(file, ylab, geo_ = NULL, K_ = NULL){
-  # Read files
-  if (!is.null(K_)){
-    df <- read.csv2(file, sep=",") %>% filter(K %in% K_)
-  } else {
-    df <- read.csv2(file, sep=",")
-  }
-  
-  if (!is.null(geo_)){
-    df <- filter(df, geo %in% geo_) %>%
-            mutate(fpr = 100*as.numeric(fpr), mean = as.numeric(mean)) %>%
-            mutate(geo = ifelse(geo == "1d", "1d linear admixture", ifelse(geo == "ind", "independent", "related")))
-  } else{
-    df <- mutate(fpr = 100*as.numeric(fpr), mean = as.numeric(mean)) %>%
-            mutate(geo = ifelse(geo == "1d", "1d linear admixture", ifelse(geo == "ind", "independent", "related")))
-  }
-          
-  # Change method names
-  for (method in c("pglmm", "glmnet", "glmnetPC", "ggmix")){
-    df[df$method == paste0(method,"FPR"), "method"] <- method
-  }
-  
-  # ggplot
-  ggplot(df,aes(x=fpr,y=mean, linetype = method, color = method))+
-    geom_line(size = 0.75)+
-    facet_grid(K~geo, labeller=label_bquote(cols=.(geo),rows=K==.(K)))+
-    #facet_grid(K~scenario+h2g+h2b, labeller=label_bquote(cols=list(h[g]^2,h[b]^2)==list(.(h2g),.(h2b)),rows=K==.(K)))+
-    labs(x="False positive rate (FPR) %",y=ylab)+
-    scale_color_brewer(palette = "Spectral") +
-    labs(color  = "method", linetype = "method")+
-    theme_bw() + 
-    theme(plot.background = element_blank(),
-          panel.grid.major = element_blank(),
-          panel.grid.minor = element_blank() )+
-    #theme(panel.border= element_blank())+
-    theme(axis.line.x = element_line(color="black", size = 0.5),
-          axis.line.y = element_line(color="black", size = 0.5))
-}
-
-#----------------------------
 #Model size
 #----------------------------
 # Function that reads file with results and create a plot using ggplot2
@@ -61,9 +18,15 @@ size2plot <- function(file, ylab, geo_ = NULL, K_ = NULL, methods = NULL, kin_ =
   }
   
   if (!is.null(geo_)){
-    df <- filter(df, geo %in% geo_) %>%
-      mutate(size = as.numeric(size), mean = as.numeric(mean)) %>%
-      mutate(geo = ifelse(geo == "1d", "1d linear admixture", ifelse(geo == "ind", "independent", "related")))
+    if (file == "size_auc_all.csv"){
+        df <- filter(df, geo %in% geo_) %>%
+        mutate(size = as.numeric(size), auc = as.numeric(auc)) %>%
+        mutate(geo = ifelse(geo == "1d", "1d linear admixture", ifelse(geo == "ind", "independent", "related")))
+    } else {
+        df <- filter(df, geo %in% geo_) %>%
+        mutate(size = as.numeric(size), mean = as.numeric(mean)) %>%
+        mutate(geo = ifelse(geo == "1d", "1d linear admixture", ifelse(geo == "ind", "independent", "related")))
+    }
   } else{
     df <- mutate(size = as.numeric(size), mean = as.numeric(mean)) %>%
       mutate(geo = ifelse(geo == "1d", "1d linear admixture", ifelse(geo == "ind", "independent", "related")))
@@ -74,27 +37,44 @@ size2plot <- function(file, ylab, geo_ = NULL, K_ = NULL, methods = NULL, kin_ =
     df[df$method == paste0(method,"size"), "method"] <- method
   }
   
-  if (!missing(methods)){
+  if (!is.null(methods)){
     df = filter(df, method %in% methods)
   }
   
   # ggplot
   if (length(unique(df$geo)) > 1){
-    ggplot(df,aes(x=size,y=mean, linetype = method, color = method))+
-      geom_line(size = 0.75)+
-      facet_grid(K~geo, labeller=label_bquote(cols=.(geo),rows=K==.(K)))+
-      #facet_grid(K~scenario+h2g+h2b, labeller=label_bquote(cols=list(h[g]^2,h[b]^2)==list(.(h2g),.(h2b)),rows=K==.(K)))+
-      labs(x="Model size",y=ylab)+
-      scale_color_brewer(palette = "Spectral") +
-      labs(color  = "method", linetype = "method")+
-      theme_bw() + 
-      theme(legend.position="bottom")+
-      theme(plot.background = element_blank(),
-            panel.grid.major = element_blank(),
-            panel.grid.minor = element_blank() )+
-      #theme(panel.border= element_blank())+
-      theme(axis.line.x = element_line(color="black", size = 0.5),
-            axis.line.y = element_line(color="black", size = 0.5))
+    if (file == "size_auc_all.csv"){
+      ggplot(filter(df, size %in% c(10, 20, 30, 40, 50)),aes(x=as.character(size),y=auc, color = method))+
+        geom_boxplot()+
+        facet_grid(K~geo, labeller=label_bquote(cols=.(geo),rows=K==.(K)))+
+        labs(x="Model size",y=ylab)+
+        scale_color_brewer(palette = "Set1") +
+        labs(color  = "method", linetype = "method")+
+        theme_bw() + 
+        theme(legend.position="bottom")+
+        theme(plot.background = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank() )+
+        #theme(panel.border= element_blank())+
+        theme(axis.line.x = element_line(color="black", size = 0.5),
+              axis.line.y = element_line(color="black", size = 0.5))
+    } else {
+      ggplot(df,aes(x=size,y=mean, linetype = method, color = method))+
+        geom_line(size = 0.75)+
+        facet_grid(K~geo, labeller=label_bquote(cols=.(geo),rows=K==.(K)))+
+        #facet_grid(K~scenario+h2g+h2b, labeller=label_bquote(cols=list(h[g]^2,h[b]^2)==list(.(h2g),.(h2b)),rows=K==.(K)))+
+        labs(x="Model size",y=ylab)+
+        scale_color_brewer(palette = "Spectral") +
+        labs(color  = "method", linetype = "method")+
+        theme_bw() + 
+        theme(legend.position="bottom")+
+        theme(plot.background = element_blank(),
+              panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank() )+
+        #theme(panel.border= element_blank())+
+        theme(axis.line.x = element_line(color="black", size = 0.5),
+              axis.line.y = element_line(color="black", size = 0.5))
+    }
   } else {
     ggplot(df,aes(x=size,y=mean, linetype = method, color = method))+
       geom_line(size = 0.75)+
@@ -117,6 +97,7 @@ size2plot <- function(file, ylab, geo_ = NULL, K_ = NULL, methods = NULL, kin_ =
 # AUC
 #fpr2plot(file="fpr_auc.csv", ylab="AUC", geo = c("1d", "ind"))
 size2plot(file="size_auc.csv", ylab="AUC", geo = c("1d", "ind"), K = c(10, 20))
+size2plot(file="size_auc_all.csv", ylab="AUC", geo = c("1d", "ind"), K = c(10, 20), methods = c("glmnetPC", "pglmm"))
 
 # Bias
 #fpr2plot(file="fpr_bias.csv", ylab="Relative bias (%)", geo = c("1d", "ind"))

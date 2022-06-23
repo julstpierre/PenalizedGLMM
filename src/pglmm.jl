@@ -262,6 +262,7 @@ function pglmm_fit(
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
+    criterion,
     earlystop::Bool 
 )
     # Initialize array to store output for each λ
@@ -269,6 +270,7 @@ function pglmm_fit(
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
     residuals = zeros(length(y), K)
+    fitted_means = zeros(length(y), K)
 
     # Loop through sequence of λ
     i = 0
@@ -286,7 +288,7 @@ function pglmm_fit(
         last_dev_ratio = dev_ratio
 
         # Run coordinate descent inner loop to update β and r
-        β, r = cd_lasso(r, Xstar, Gstar; family = Normal(), β = β, p_f = p_f, λ = λ)
+        β, r = cd_lasso(r, Xstar, Gstar; family = Normal(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, p_f = p_f, λ = λ, criterion = criterion)
 
         # Update deviance
         dev = NormalDeviance(r, w)
@@ -314,7 +316,7 @@ function cd_lasso(
     family::UnivariateDistribution,
     β::SparseVector{Float64},
     Ytilde::Vector{Float64},
-    y::Vector{Int64},
+    y::Union{Vector{Int64},Vector{Float64}},
     w::Vector{Float64}, 
     UD_inv::Matrix{Float64},
     p_f::Vector{Float64}, 
@@ -550,7 +552,7 @@ end
 
 # Functions to calculate deviance
 model_dev(::Binomial, y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = LogisticDeviance(y, r, w, μ)
-model_dev(::Normal, y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = NormalDeviance(r, w)
+model_dev(::Normal, y::Vector{Float64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = NormalDeviance(r, w)
 
 function LogisticDeviance(y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64})
     -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + sum(w .* (1 .- 4 * w) .* r.^2)
