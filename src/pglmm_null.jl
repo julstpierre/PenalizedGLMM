@@ -103,10 +103,10 @@ function pglmm_null(
     end
 
     # For Normal family, dispersion parameter needs to be estimated
-    if family == Normal()
-        K = K + 1
+    if family == Normal() 
+        K += 1
         V = reverse(push!(reverse(V), Diagonal(ones(n))))
-    end
+    end 
 
     # Obtain initial values for variance components
     theta0 = fill(var(Ytilde) / K, K)
@@ -117,7 +117,7 @@ function pglmm_null(
     # Iterate until convergence
     while true
         # Update variance components estimates
-        fit0 = glmmfit_ai(theta0, V, X, Ytilde, W(μ, first(theta0)), K)
+        fit0 = glmmfit_ai(family, theta0, V, X, Ytilde, W(μ, first(theta0)), K)
         if nsteps == 1
             theta = theta0 + n^-1 * theta0.^2 .* fit0.S
         else
@@ -125,7 +125,7 @@ function pglmm_null(
         end
 
         # Update working response
-        fit = glmmfit_ai(theta, V, X, Ytilde, W(μ, first(theta)), K, fit_only = "TRUE")
+        fit = glmmfit_ai(family, theta, V, X, Ytilde, W(μ, first(theta)), K, fit_only = true)
         α, η = fit.α, fit.η
         μ = GLM.linkinv.(link, η)
         Ytilde = η + dg(μ) .* (y - μ)
@@ -140,8 +140,8 @@ function pglmm_null(
                 φ, τ = 1.0, theta
                 τV = sum(τ .* V)
             elseif family == Normal()
-                φ, τ = first(theta), deleteat!(theta, 1)
-                τV = sum(τ .* deleteat!(V, 1))
+                φ, τ = first(theta), theta[2:end]
+                τV = sum(τ .* V[2:end])
             end
 
             return(φ = φ, 
@@ -164,16 +164,18 @@ function pglmm_null(
 end
 
 function glmmfit_ai(
+    family::UnivariateDistribution,
     theta::Vector{Float64}, 
     V::Vector{Any},
     X::Matrix{Float64},
     Ytilde::Vector{Float64},
     W::Diagonal{Float64, Vector{Float64}},
     K::Integer;
-    fit_only = "FALSE"
+    fit_only::Bool = false
     )
+
     # Define inverse of Σ
-    Σ_inv = Symmetric(inv(cholesky(W^-1 + sum(theta .* V))))
+    Σ_inv = family == Normal() ? Symmetric(inv(cholesky(W^-1 + sum(theta[2:end] .* V[2:end])))) : Symmetric(inv(cholesky(W^-1 + sum(theta .* V))))
     XΣ_inv = X' * Σ_inv
     XΣ_invX = Symmetric(XΣ_inv * X)
     cov = inv(cholesky(XΣ_invX))
@@ -183,7 +185,7 @@ function glmmfit_ai(
     PY = Σ_inv * Ytilde - XΣ_inv' * α
     η = Ytilde - W^-1 * PY
 
-    if fit_only == "TRUE"
+    if fit_only
         return(α = α, η = η)
     else
         # Define the score of the restricted quasi-likelihood with respect to variance components
