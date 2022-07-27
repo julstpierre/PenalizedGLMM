@@ -676,7 +676,13 @@ function Umul!(U::AbstractMatrix{T}, X::AbstractMatrix{T}; K::Integer = 1000) wh
         X[:, j:(j+K-1)] = mul!(b, U', view(X, :, j:(j+K-1)))
     end
 
-    b = similar(X, n, length((last(jseq) + K):p))
-    X[:, (last(jseq) + K):p] = mul!(b, U', view(X, :, (last(jseq) + K):p))
+    lastt = 0
+    if (length(jseq)>0)
+            lastt = last(jseq)
+    end
+    # b = similar(X, n, length((last(jseq) + K):p))
+    # X[:, (last(jseq) + K):p] = mul!(b, U', view(X, :, (last(jseq) + K):p))
+    b = similar(X, n, length((lastt + K):p))
+    X[:, (lastt + K):p] = mul!(b, U', view(X, :, (lastt + K):p))
     return(X)
 end
