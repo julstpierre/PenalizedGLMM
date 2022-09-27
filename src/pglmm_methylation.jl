@@ -459,7 +459,7 @@ modeltype(::Binomial) = "Logistic"
 
 eigenweights(::Normal, eigvals::Vector{Float64}, φ::Float64) = (1 ./(φ .+ eigvals))
 eigenweights(::Binomial, eigvals::Vector{Float64}, φ::Float64) = (1 ./(4 .+ eigvals))
-eigenweights(::Normal, eigvals::Vector{Float64}, weights::Vector{Float64}) = (1 ./ (1 ./ (4 * weights) .+ eigvals))
+eigenweights(::Normal, eigvals::Vector{Float64}, depths::Vector{Float64}) = (1 ./ (1 ./ (4 * depths) .+ eigvals))
 
 struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     family::F
