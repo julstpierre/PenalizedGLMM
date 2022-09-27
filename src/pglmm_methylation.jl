@@ -25,7 +25,7 @@ function pglmm(
     nullmodel,
     plinkfile::Union{Nothing, AbstractString} = nothing;
     # keyword arguments
-    methyl_counts::Vector{Float64}, 
+    methyl_read_depth::Vector{Float64}, 
     snpfile::Union{Nothing, AbstractString} = nothing,
     snpmodel = ADDITIVE_MODEL,
     snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
