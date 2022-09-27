@@ -11,5 +11,6 @@ export pglmm
 
 include("pglmm_null.jl")
 include("pglmm.jl")
+include("utils.jl")
 
 end
