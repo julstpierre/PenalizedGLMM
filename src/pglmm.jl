@@ -1,24 +1,17 @@
 """
-    pglmm(nullmode, plinkfile; kwargs...)
+    pglmm(plinkfile; kwargs...)
 # Positional arguments 
-- `nullmodel`: null model obtained by fitting pglmm_null.
+- `nullmodel`: Null model obtained by fitting pglmm_null.
 - `plinkfile::AbstractString`: PLINK file name containing genetic information,
     without the .bed, .fam, or .bim extensions. Moreover, bed, bim, and fam file with 
     the same `geneticfile` prefix need to exist.
 # Keyword arguments
-- `snpfile::Union{Nothing, AbstractString}`: TXT file name containing genetic data if not in PLINK format.
 - `snpmodel`: `ADDITIVE_MODEL` (default), `DOMINANT_MODEL`, or `RECESSIVE_MODEL`.
 - `snpinds::Union{Nothing,AbstractVector{<:Integer}}`: SNP indices for bed/vcf file.
 - `geneticrowinds::Union{Nothing,AbstractVector{<:Integer}}`: sample indices for bed/vcf file.
 - `irwls_tol::Float64` = 1e-7 (default)`: tolerance for the IRWLS loop.
-- `irwls_maxiter::Integer = 500 (default)`: maximum number of iterations for the IRWLS loop.
-- `K_::Union{Nothing, Integer} = nothing (default)`: stop the full lasso path search after K_th value of λ.
-- `verbose::Bool = false (default)`: print number of irwls iterations at each value of λ.
-- `standardize_X::Bool = true (default)`: standardize non-genetic covariates. Coefficients are returned on original scale.
-- `standardize_G::Bool = true (default)`: standardize genetic predictors. Coefficients are returned on original scale.
-- `standardize_weights::Bool = false (default)`: standardize weights so their sum is equal to 1.
-- `criterion`: criterion for coordinate descent convergence. Can be equal to `:coef` (default) or `:obj`.
-- `earlystop::Bool = true (default)`: should full lasso path search stop earlier if deviance change is smaller than MIN_DEV_FRAC_DIFF or higher than MAX_DEV_FRAC ? 
+- `irwls_maxiter::Integer = 300 (default)`: maximum number of Newton iterations for the IRWLS loop.
+- `criterion = :coef (default)`: criterion for coordinate descent convergence.
 """
 function pglmm(
     # positional arguments
@@ -103,15 +96,16 @@ function pglmm(
     Ystar = Array{Float64}(undef, n)
 	mul!(Ystar, U', Ytilde)
 
-    # Initialize residuals
+    # Initialize residuals and sum of squares
     r = Ystar - Xstar * β.nzval
+    Swxx = sparse([Xstar' .^2 * w; zeros(p)]) 
 
     # Sequence of λ
     λ_seq, K = lambda_seq(Ystar, Xstar, Gstar; weights = w_n, p_f = p_f)
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, Gstar, nulldev, r, w, β, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, Gstar, nulldev, r, w, β, Swxx, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop)
 
     # If there is an intercept, separate it from betas
     if intercept
@@ -149,7 +143,7 @@ end
 const MIN_DEV_FRAC_DIFF = 1e-5
 const MAX_DEV_FRAC = 0.999
 
-# Function to fit a penalised mixed model
+# Function to fit a penalized mixed model
 function pglmm_fit(
     ::Binomial,
     Ytilde::Vector{Float64},
@@ -159,7 +153,8 @@ function pglmm_fit(
     nulldev::Float64,
     r::Vector{Float64},
     w::Vector{Float64},
-    β::SparseVector{Float64, Int64},
+    β::SparseVector{Float64},
+    Swxx::SparseVector{Float64},
     p_f::Vector{Float64},
     λ_seq::Vector{Float64},
     K::Int64,
@@ -196,7 +191,7 @@ function pglmm_fit(
         for irwls in 1:irwls_maxiter
 
             # Run coordinate descent inner loop to update β and r
-            β, r = cd_lasso(r, Xstar, Gstar; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, p_f = p_f, λ = λ, criterion = criterion)
+            β, r = cd_lasso(r, Xstar, Gstar; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, Swxx = Swxx, p_f = p_f, λ = λ, criterion = criterion)
 
             # Update μ
             μ = updateμ(r, Ytilde, UD_inv)
@@ -253,7 +248,8 @@ function pglmm_fit(
     nulldev::Float64,
     r::Vector{Float64},
     w::Vector{Float64},
-    β::SparseVector{Float64, Int64},
+    β::SparseVector{Float64},
+    Swxx::SparseVector{Float64},
     p_f::Vector{Float64},
     λ_seq::Vector{Float64},
     K::Int64,
@@ -262,7 +258,6 @@ function pglmm_fit(
     verbose::Bool,
     irwls_tol::Float64,
     irwls_maxiter::Int64,
-    criterion,
     earlystop::Bool 
 )
     # Initialize array to store output for each λ
@@ -270,7 +265,6 @@ function pglmm_fit(
     pct_dev = zeros(Float64, K)
     dev_ratio = convert(Float64, NaN)
     residuals = zeros(length(y), K)
-    fitted_means = zeros(length(y), K)
 
     # Loop through sequence of λ
     i = 0
@@ -288,7 +282,7 @@ function pglmm_fit(
         last_dev_ratio = dev_ratio
 
         # Run coordinate descent inner loop to update β and r
-        β, r = cd_lasso(r, Xstar, Gstar; family = Normal(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, p_f = p_f, λ = λ, criterion = criterion)
+        β, r = cd_lasso(r, Xstar, Gstar; family = Normal(), β = β, Swxx = Swxx, p_f = p_f, λ = λ)
 
         # Update deviance
         dev = NormalDeviance(r, w)
@@ -315,8 +309,9 @@ function cd_lasso(
     #keywords arguments
     family::UnivariateDistribution,
     β::SparseVector{Float64},
+    Swxx::SparseVector{Float64},
     Ytilde::Vector{Float64},
-    y::Union{Vector{Int64},Vector{Float64}},
+    y::Vector{Int64},
     w::Vector{Float64}, 
     UD_inv::Matrix{Float64},
     p_f::Vector{Float64}, 
@@ -338,42 +333,42 @@ function cd_lasso(
             # Non-genetic covariates
             for j in 1:k
                 Xj = view(X, :, j)
-                v = dot(Xj, Diagonal(w), r)
+                v = compute_grad(Xj, w, r)
                 λj = λ * p_f[j]
-                Swxxj = dot(Xj, Diagonal(w), Xj)
 
                 last_β = β[j]
                 if last_β != 0
-                    v += last_β * Swxxj
+                    v += last_β * Swxx[j]
                 else
                     # Adding a new variable to the model
                     abs(v) < λj && continue
+                    Swxx[j] = compute_Swxx(Xj, w)
                 end
-                new_β = softtreshold(v, λj) / Swxxj
+                new_β = softtreshold(v, λj) / Swxx[j]
                 r += Xj * (last_β - new_β)
 
-                maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
+                maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
                 β[j] = new_β
             end
 
             # Genetic covariates
             for j in 1:size(G, 2)
                 Gj = view(G, :, j)
-                v = dot(Gj, Diagonal(w), r)
+                v = compute_grad(Gj, w, r)
                 λj = λ * p_f[k + j]
-                Swxxj = dot(Gj, Diagonal(w), Gj)
 
                 last_β = β[k + j]
                 if last_β != 0
-                    v += last_β * Swxxj
+                    v += last_β * Swxx[k + j]
                 else
                     # Adding a new variable to the model
                     abs(v) < λj && continue
+                    Swxx[k + j] = compute_Swxx(Gj, w)
                 end
-                new_β = softtreshold(v, λj) / Swxxj
+                new_β = softtreshold(v, λj) / Swxx[k + j]
                 r += Gj * (last_β - new_β)
 
-                maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
+                maxΔ = max(maxΔ, Swxx[k + j] * (last_β - new_β)^2)
                 β[k + j] = new_β
             end
 
@@ -404,12 +399,11 @@ function cd_lasso(
             last_β == 0 && continue
             
             Xj = view(X, :, j)
-            Swxxj = dot(Xj, Diagonal(w), Xj)
-            v = dot(Xj, Diagonal(w), r) + last_β * Swxxj
-            new_β = softtreshold(v, λ * p_f[j]) / Swxxj
+            v = compute_grad(Xj, w, r) + last_β * Swxx[j]
+            new_β = softtreshold(v, λ * p_f[j]) / Swxx[j]
             r += Xj * (last_β - new_β)
 
-            maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
+            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
             β[j] = new_β
         end
 
@@ -419,12 +413,11 @@ function cd_lasso(
             last_β == 0 && continue
             
             Gj = view(G, :, j-k)
-            Swxxj = dot(Gj, Diagonal(w), Gj)
-            v = dot(Gj, Diagonal(w), r) + last_β * Swxxj
-            new_β = softtreshold(v, λ * p_f[j]) / Swxxj
+            v = compute_grad(Gj, w, r) + last_β * Swxx[j]
+            new_β = softtreshold(v, λ * p_f[j]) / Swxx[j]
             r += Gj * (last_β - new_β)
 
-            maxΔ = max(maxΔ, Swxxj * (last_β - new_β)^2)
+            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
             β[j] = new_β
         end
 
@@ -552,7 +545,7 @@ end
 
 # Functions to calculate deviance
 model_dev(::Binomial, y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = LogisticDeviance(y, r, w, μ)
-model_dev(::Normal, y::Vector{Float64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = NormalDeviance(r, w)
+model_dev(::Normal, y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64}) = NormalDeviance(r, w)
 
 function LogisticDeviance(y::Vector{Int64}, r::Vector{Float64}, w::Vector{Float64}, μ::Vector{Float64})
     -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + sum(w .* (1 .- 4 * w) .* r.^2)
@@ -666,17 +659,10 @@ function GIC(path::pglmmPath, criterion)
     return(argmin(GIC))
 end
 
-# In-place multiplication of predictor matrix with eigenvectors matrix U'
-function Umul!(U::AbstractMatrix{T}, X::AbstractMatrix{T}; K::Integer = 1000) where T
-    n, p = size(X)
-    b = similar(X, n, K)
-    jseq = collect(1:K:p)[1:(end-1)]
+function compute_grad(Xj::AbstractVector{T}, w::AbstractVector{T}, r::AbstractVector{T}) where T
+    dot(Xj, Diagonal(w), r)
+end
 
-    @inbounds for j in jseq
-        X[:, j:(j+K-1)] = mul!(b, U', view(X, :, j:(j+K-1)))
-    end
-
-    b = similar(X, n, length((last(jseq) + K):p))
-    X[:, (last(jseq) + K):p] = mul!(b, U', view(X, :, (last(jseq) + K):p))
-    return(X)
+function compute_Swxx(Xj::AbstractVector{T}, w::AbstractVector{T}) where T
+    dot(Xj, Diagonal(w), Xj)
 end
