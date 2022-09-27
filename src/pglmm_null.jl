@@ -45,7 +45,7 @@ function pglmm_null(
     end
 
     if !isnothing(grminds)
-        GRM = GRM[grminds, grminds]
+        GRM = GRM[grminds, grminds] |> x->Symmetric(x)
     end
 
     # Initialize number of subjects and genetic predictors
@@ -175,14 +175,13 @@ function glmmfit_ai(
     )
 
     # Define inverse of Σ
-    Σ_inv = family == Normal() ? Symmetric(inv(cholesky(W^-1 + sum(theta[2:end] .* V[2:end])))) : Symmetric(inv(cholesky(W^-1 + sum(theta .* V))))
-    XΣ_inv = X' * Σ_inv
-    XΣ_invX = Symmetric(XΣ_inv * X)
-    cov = inv(cholesky(XΣ_invX))
-    covXΣ_inv = cov * XΣ_inv
+    Σ = family == Normal() ? cholesky(W^-1 + sum(theta[2:end] .* V[2:end])) : cholesky(W^-1 + sum(theta .* V))
+    XΣ_inv = X' / Σ
+    XΣ_invX = Symmetric(XΣ_inv * X) |> x-> cholesky(x)
+    covXΣ_inv = XΣ_invX \ XΣ_inv
 
     α = covXΣ_inv * Ytilde
-    PY = Σ_inv * Ytilde - XΣ_inv' * α
+    PY = Σ \ Ytilde - XΣ_inv' * α
     η = Ytilde - W^-1 * PY
 
     if fit_only
@@ -190,8 +189,8 @@ function glmmfit_ai(
     else
         # Define the score of the restricted quasi-likelihood with respect to variance components
         VPY = [V[k] * PY for k in 1:K]
-        PVPY = [Σ_inv * VPY[k] - XΣ_inv' * covXΣ_inv * VPY[k] for k in 1:K]
-        S = [PY' * VPY[k] - sum(Σ_inv .* V[k]) - sum(XΣ_inv .* (covXΣ_inv * V[k])) for k in 1:K]
+        PVPY = [Σ \ VPY[k] - XΣ_inv' * covXΣ_inv * VPY[k] for k in 1:K]
+        S = [PY' * VPY[k] - sum(inv(Σ) .* V[k]) - sum(XΣ_inv .* (covXΣ_inv * V[k])) for k in 1:K]
 
         # Define the average information matrix AI
         AI = Array{Float64}(undef, K, K)
