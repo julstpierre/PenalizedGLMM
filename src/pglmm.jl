@@ -179,6 +179,9 @@ function pglmm_fit(
     fitted_means = zeros(length(y), K)
     μ = zeros(length(y))
 
+    # Define size of predictors
+    k, p = size(Xstar, 2), size(Gstar, 2)
+
     # Loop through sequence of λ
     i = 0
     for _ = 1:K
@@ -197,7 +200,7 @@ function pglmm_fit(
         for irwls in 1:irwls_maxiter
 
             # Run coordinate descent inner loop to update β and r
-            β, r = cd_lasso(r, Xstar, Gstar; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, Swxx = Swxx, p_f = p_f, λ = λ, criterion = criterion)
+            β, r = cd_lasso(r, Xstar, Gstar; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, Swxx = Swxx, p_f = p_f, λ = λ, criterion = criterion, k = k, p = p)
 
             # Update μ
             μ = updateμ(r, Ytilde, UD_inv)
@@ -272,6 +275,9 @@ function pglmm_fit(
     dev_ratio = convert(Float64, NaN)
     residuals = zeros(length(y), K)
 
+    # Define size of predictors
+    k, p = size(Xstar, 2), size(Gstar, 2)
+
     # Loop through sequence of λ
     i = 0
     for _ = 1:K
@@ -288,7 +294,7 @@ function pglmm_fit(
         last_dev_ratio = dev_ratio
 
         # Run coordinate descent inner loop to update β and r
-        β, r = cd_lasso(r, Xstar, Gstar; family = Normal(), β = β, Swxx = Swxx, p_f = p_f, λ = λ)
+        β, r = cd_lasso(r, Xstar, Gstar; family = Normal(), β = β, Swxx = Swxx, p_f = p_f, λ = λ, k = k, p = p)
 
         # Update deviance
         dev = NormalDeviance(r, w)
@@ -324,13 +330,14 @@ function cd_lasso(
     λ::Float64,
     cd_maxiter::Integer = 100000,
     cd_tol::Real=1e-8,
-    criterion
+    criterion,
+    k::Float64,
+    p::Float64
     )
 
     converged = false
     maxΔ = zero(Float64)
     loss = Inf
-    k = size(X, 2)
 
     for cd_iter in 1:cd_maxiter
         # At first iteration, perform one coordinate cycle and 
@@ -358,7 +365,7 @@ function cd_lasso(
             end
 
             # Genetic covariates
-            for j in 1:size(G, 2)
+            for j in 1:p
                 Gj = view(G, :, j)
                 v = compute_grad(Gj, w, r)
                 λj = λ * p_f[k + j]

@@ -284,7 +284,7 @@ df <- rbind(
 
 ggplot(df, aes(y=as.numeric(mse), x=as.numeric(K), colour=method, linetype=method)) +
   geom_line() +
-  labs(y="MSE", x="lambda index")+
+  labs(y=expression(paste("MSE (", hat(beta), ")")), x="lambda index")+
   scale_colour_grey(start=0.7, end=0.1)+
   theme_bw() +
   theme(plot.background = element_blank(),

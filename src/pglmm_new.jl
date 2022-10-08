@@ -180,6 +180,9 @@ function pglmm_fit(
     fitted_means = zeros(length(y), K)
     μ = zeros(length(y))
 
+    # Define size of predictors
+    k, p = size(Xstar, 2), size(Gstar, 2)
+
     # Loop through sequence of λ
     i = 0
     for _ = 1:K
@@ -201,7 +204,7 @@ function pglmm_fit(
             b, r, Ytilde, loss = update_b(b, r, Ytilde, y, UD_invUt, U, eigvals, loss, sum(p_f[β.nzind] .* abs.(β.nzval)), λ)
 
             # Run coordinate descent inner loop to update β
-            β, r = cd_lasso(r, X, G; family = Binomial(), Ytilde = Ytilde, y = y, w = w, β = β, Swxx = Swxx, b = b, U = U, eigvals = eigvals, p_f = p_f, λ = λ, criterion = criterion)
+            β, r = cd_lasso(r, X, G; family = Binomial(), Ytilde = Ytilde, y = y, w = w, β = β, Swxx = Swxx, b = b, U = U, eigvals = eigvals, p_f = p_f, λ = λ, criterion = criterion, k = k, p = p)
 
             # Update μ
             μ = updateμ(r, Ytilde)
@@ -280,6 +283,9 @@ function pglmm_fit(
     dev_ratio = convert(Float64, NaN)
     residuals = zeros(length(y), K)
 
+    # Define size of predictors
+    k, p = size(Xstar, 2), size(Gstar, 2)
+
     # Loop through sequence of λ
     i = 0
     for _ = 1:K
@@ -299,7 +305,7 @@ function pglmm_fit(
         b, r = update_b(b, r, UD_invUt)
 
         # Run coordinate descent inner loop to update β
-        β, r = cd_lasso(r, X, G; family = Normal(), Ytilde = Ytilde, y = y, w = w, β = β, Swxx = Swxx, b = b, U = U, eigvals = eigvals, p_f = p_f, λ = λ, criterion = criterion)
+        β, r = cd_lasso(r, X, G; family = Normal(), Ytilde = Ytilde, y = y, w = w, β = β, Swxx = Swxx, b = b, U = U, eigvals = eigvals, p_f = p_f, λ = λ, criterion = criterion, k = k, p = p)
 
         # Update deviance
         dev = NormalDeviance(b, U, w, r, eigvals)
@@ -396,14 +402,14 @@ function cd_lasso(
     λ::T,
     cd_maxiter::Integer = 100000,
     cd_tol::Real=1e-8,
-    criterion
+    criterion,
+    k::Float64,
+    p::Float64
     ) where T
 
     converged = false
     maxΔ = zero(T)
     loss = Inf
-    k = size(X, 2)
-    p = size(G, 2)
 
     for cd_iter in 1:cd_maxiter
         # At first iteration, perform one coordinate cycle and 
