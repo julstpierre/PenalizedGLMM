@@ -18,6 +18,7 @@
 - `standardize_G::Bool = true (default)`: standardize genetic predictors. Coefficients are returned on original scale.
 - `criterion`: criterion for coordinate descent convergence. Can be equal to `:coef` (default) or `:obj`.
 - `earlystop::Bool = true (default)`: should full lasso path search stop earlier if deviance change is smaller than MIN_DEV_FRAC_DIFF or higher than MAX_DEV_FRAC ? 
+- `strongrule::Bool = false (default)`: should strong rule be used to define strong set ? 
 """
 function pglmm(
     # positional arguments
@@ -37,6 +38,7 @@ function pglmm(
     standardize_weights::Bool = false,
     criterion = :coef,
     earlystop::Bool = true,
+    strongrule::Bool = false,
     kwargs...
     )
 
@@ -111,7 +113,7 @@ function pglmm(
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, Gstar, nulldev, r, w, β, Swxx, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, Gstar, nulldev, r, w, β, Swxx, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, strongrule)
 
     # If there is an intercept, separate it from betas
     if intercept
@@ -170,7 +172,8 @@ function pglmm_fit(
     irwls_tol::Float64,
     irwls_maxiter::Int64,
     criterion,
-    earlystop::Bool
+    earlystop::Bool,
+    strongrule::Bool
 )
     # Initialize array to store output for each λ
     betas = zeros(length(β), K)
@@ -190,7 +193,7 @@ function pglmm_fit(
         converged = false
         
         # Current value of λ
-        λ = λ_seq[i]
+        λ = strongrule ? vec(λ_seq[[max(1, i-1), i], :]) : λ_seq[i]
 
         # Initialize objective function and save previous deviance ratio
         dev = loss = convert(Float64, Inf)
@@ -200,7 +203,7 @@ function pglmm_fit(
         for irwls in 1:irwls_maxiter
 
             # Run coordinate descent inner loop to update β and r
-            β, r = cd_lasso(r, Xstar, Gstar; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, Swxx = Swxx, p_f = p_f, λ = λ, criterion = criterion, k = k, p = p)
+            β, r = cd_lasso(r, Xstar, Gstar, λ; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, Swxx = Swxx, p_f = p_f, criterion = criterion, k = k, p = p)
 
             # Update μ
             μ = updateμ(r, Ytilde, UD_inv)
@@ -208,7 +211,7 @@ function pglmm_fit(
             # Update deviance and loss function
             prev_loss = loss
             dev = LogisticDeviance(y, r, w, μ)
-            loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
+            loss = dev/2 + last(λ) * sum(p_f[β.nzind] .* abs.(β.nzval))
             
             # If loss function did not decrease, take a half step to ensure convergence
             if loss > prev_loss + length(μ)*eps(prev_loss)
@@ -220,7 +223,7 @@ function pglmm_fit(
                     β = β_last + s * d
                     μ = updateμ(r, Ytilde, UD_inv) 
                     dev = LogisticDeviance(y, r, w, μ)
-                    loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
+                    loss = dev/2 + last(λ) * sum(p_f[β.nzind] .* abs.(β.nzval))
                 end =#
             end 
 
@@ -233,7 +236,7 @@ function pglmm_fit(
             converged && break 
 
         end
-        @assert converged "IRWLS failed to converge in $irwls_maxiter iterations at λ = $λ"
+        @assert converged "IRWLS failed to converge in $irwls_maxiter iterations at λ = $(last(λ))"
 
         # Store ouput from IRWLS loop
         betas[:, i] = convert(Vector{Float64}, β)
@@ -288,13 +291,13 @@ function pglmm_fit(
         verbose && println("i = ", i)
         
         # Current value of λ
-        λ = λ_seq[i]
+        λ = strongrule ? vec(λ_seq[[max(1, i-1), i], :]) : λ_seq[i]
 
         # Save previous deviance ratio
         last_dev_ratio = dev_ratio
 
         # Run coordinate descent inner loop to update β and r
-        β, r = cd_lasso(r, Xstar, Gstar; family = Normal(), β = β, Swxx = Swxx, p_f = p_f, λ = λ, k = k, p = p)
+        β, r = cd_lasso(r, Xstar, Gstar, λ; family = Normal(), β = β, Swxx = Swxx, p_f = p_f, k = k, p = p)
 
         # Update deviance
         dev = NormalDeviance(r, w)
@@ -317,7 +320,8 @@ function cd_lasso(
     # positional arguments
     r::Vector{Float64},
     X::Matrix{Float64},
-    G::Matrix{Float64};
+    G::Matrix{Float64},
+    λ::Float64;
     #keywords arguments
     family::UnivariateDistribution,
     β::SparseVector{Float64},
@@ -326,13 +330,12 @@ function cd_lasso(
     y::Vector{Int64},
     w::Vector{Float64}, 
     UD_inv::Matrix{Float64},
-    p_f::Vector{Float64}, 
-    λ::Float64,
+    p_f::Vector{Float64},
     cd_maxiter::Integer = 100000,
     cd_tol::Real=1e-8,
     criterion,
-    k::Float64,
-    p::Float64
+    k::Int64,
+    p::Int64
     )
 
     converged = false
@@ -458,6 +461,159 @@ function cd_lasso(
     return(β, r)
 
 end
+
+# Function to perform coordinate descent with a lasso penalty using strong rule
+function cd_lasso(
+    # positional arguments
+    r::Vector{Float64},
+    X::Matrix{Float64},
+    G::Matrix{Float64},
+    λ::Vector{Float64};
+    #keywords arguments
+    family::UnivariateDistribution,
+    β::SparseVector{Float64},
+    Swxx::SparseVector{Float64},
+    Ytilde::Vector{Float64},
+    y::Vector{Int64},
+    w::Vector{Float64}, 
+    UD_inv::Matrix{Float64},
+    p_f::Vector{Float64},
+    cd_maxiter::Integer = 100000,
+    cd_tol::Real=1e-8,
+    criterion,
+    k::Int64,
+    p::Int64
+    )
+
+    converged = false
+    loss = Inf
+    S = []
+
+    for cd_iter in 1:cd_maxiter
+        # At first iteration, use strong rule to 
+        # define strong set of coefficients that should be nonzero
+        if cd_iter == 1
+            # Non-genetic covariates
+            for j in 1:k
+                Xj = view(X, :, j)
+                v = compute_grad(Xj, w, r)
+                λj = (λ[2] - (λ[1] - λ[2])) * p_f[j]
+
+                if β[j] != 0
+                    push!(S, j)
+                else
+                    # Adding a new variable to the model
+                    abs(v) < λj && continue
+                    push!(S, j)
+                    Swxx[j] = compute_Swxx(Xj, w)
+                end
+            end
+
+            # Genetic covariates
+            for j in 1:p
+                Gj = view(G, :, j)
+                v = compute_grad(Gj, w, r)
+                λj = (λ[2] - (λ[1] - λ[2])) * p_f[k + j]
+
+                if β[k + j] != 0
+                    push!(S, k + j)
+                else
+                    # Adding a new variable to the model
+                    abs(v) < λj && continue
+                    push!(S, k + j)
+                    Swxx[k + j] = compute_Swxx(Gj, w)
+                end
+            end
+        end
+
+        # Cycle over coefficients in strong set only until convergence
+        maxΔ = zero(Float64)
+
+        # Non-genetic covariates
+        for j in S[S .<= k]
+            last_β = β[j]
+            Xj = view(X, :, j)
+            v = compute_grad(Xj, w, r) + last_β * Swxx[j]
+            new_β = softtreshold(v, λ[2] * p_f[j]) / Swxx[j]
+            r += Xj * (last_β - new_β)
+
+            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
+            β[j] = new_β
+        end
+
+        # Genetic predictors
+        for j in S[S .> k]
+            last_β = β[j]
+            Gj = view(G, :, j-k)
+            v = compute_grad(Gj, w, r) + last_β * Swxx[j]
+            new_β = softtreshold(v, λ[2] * p_f[j]) / Swxx[j]
+            r += Gj * (last_β - new_β)
+
+            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
+            β[j] = new_β
+        end
+
+        # Check termination condition
+        if criterion == :obj
+            # Update μ
+            μ = updateμ(r, Ytilde, UD_inv)
+
+            # Update deviance and loss function
+            prev_loss = loss
+            dev = model_dev(family, y, r, w, μ)
+            loss = dev/2 + λ[2] * sum(p_f[β.nzind] .* abs.(β.nzval))
+
+            # Check termination condition
+            converged = abs(loss - prev_loss) < cd_tol * loss 
+
+        elseif criterion == :coef
+            converged = maxΔ < cd_tol
+        end
+
+        # Check KKT conditions at last iteration
+        if converged
+            # Non-genetic covariates
+            for j in 1:k
+                Xj = view(X, :, j)
+                v = compute_grad(Xj, w, r)
+                λj = λ[2] * p_f[j]
+ 
+                if β[j] == 0
+                    # Adding a new variable to the model
+                    abs(v) < λj && continue
+                    sort!(push!(S, j))
+                    Swxx[j] = compute_Swxx(Xj, w)
+                    converged = false
+                end
+            end
+
+            # Genetic covariates
+            for j in 1:p
+                Gj = view(G, :, j)
+                v = compute_grad(Gj, w, r)
+                λj = λ[2] * p_f[k+j]
+
+                if β[k + j] == 0
+                    # Adding a new variable to the model
+                    abs(v) < λj && continue
+                    sort!(push!(S, k + j))
+                    Swxx[k + j] = compute_Swxx(Gj, w)
+                    converged = false
+                end
+            end
+        end
+
+        # Check termination condition at last iteration
+        converged && break
+    end
+
+    # Assess convergence of coordinate descent
+    @assert converged "Coordinate descent failed to converge in $cd_maxiter iterations at λ = $(last(λ))"
+
+    return(β, r)
+
+end
+
 
 modeltype(::Normal) = "Least Squares GLMNet"
 modeltype(::Binomial) = "Logistic"
