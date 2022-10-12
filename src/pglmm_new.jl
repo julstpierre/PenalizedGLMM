@@ -403,8 +403,8 @@ function cd_lasso(
     cd_maxiter::Integer = 100000,
     cd_tol::Real=1e-8,
     criterion,
-    k::Float64,
-    p::Float64
+    k::Int64,
+    p::Int64
     ) where T
 
     converged = false

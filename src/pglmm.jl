@@ -41,6 +41,20 @@ function pglmm(
     strongrule::Bool = false,
     kwargs...
     )
+    
+    ## keyword arguments
+    # snpmodel = ADDITIVE_MODEL
+    # snpinds = nothing
+    # irwls_tol = 1e-7
+    # irwls_maxiter = 500
+    # K_ = nothing
+    # verbose = true
+    # standardize_X = true
+    # standardize_G = true
+    # standardize_weights = false
+    # criterion = :coef
+    # earlystop= true
+    # strongrule = false
 
     # Read genotype file
     if !isnothing(plinkfile)
@@ -339,76 +353,105 @@ function cd_lasso(
     )
 
     converged = false
-    maxΔ = zero(Float64)
     loss = Inf
 
+    # At first iteration, perform one coordinate cycle and record active set of coefficients that are nonzero
+    maxΔ, r = cycle(X, G, λ, r = r, β = β, Swxx = Swxx, w = w, p_f = p_f, k = k, p = p, all_pred = true)
+
     for cd_iter in 1:cd_maxiter
-        # At first iteration, perform one coordinate cycle and 
-        # record active set of coefficients that are nonzero
-        if cd_iter == 1 || converged
-            # Non-genetic covariates
-            for j in 1:k
-                Xj = view(X, :, j)
-                v = compute_grad(Xj, w, r)
-                λj = λ * p_f[j]
+        # Perform one coordinate descent cycle
+        maxΔ, r = cycle(X, G, λ, r = r, β = β, Swxx = Swxx, w = w, p_f = p_f, k = k, p = p, all_pred = converged)
 
-                last_β = β[j]
-                if last_β != 0
-                    v += last_β * Swxx[j]
-                else
-                    # Adding a new variable to the model
-                    abs(v) < λj && continue
-                    Swxx[j] = compute_Swxx(Xj, w)
-                end
-                new_β = softtreshold(v, λj) / Swxx[j]
-                r += Xj * (last_β - new_β)
+        # Check termination condition before last iteration
+        if criterion == :obj
+            # Update μ
+            μ = updateμ(r, Ytilde, UD_inv)
 
-                maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
-                β[j] = new_β
+            # Update deviance and loss function
+            prev_loss = loss
+            dev = model_dev(family, y, r, w, μ)
+            loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
+
+            # Check termination condition
+            converged && abs(loss - prev_loss) < cd_tol * loss && break
+            converged = abs(loss - prev_loss) < cd_tol * loss 
+
+        elseif criterion == :coef
+            converged && maxΔ < cd_tol && break
+            converged = maxΔ < cd_tol
+        end
+    end
+
+    # Assess convergence of coordinate descent
+    @assert converged "Coordinate descent failed to converge in $cd_maxiter iterations at λ = $λ"
+
+    return(β, r)
+
+end
+
+function cycle(
+    # positional arguments
+    X::Matrix{Float64},
+    G::Matrix{Float64},
+    λ::Float64;
+    #keywords arguments
+    r::Vector{Float64},
+    β::SparseVector{Float64},
+    Swxx::SparseVector{Float64},
+    w::Vector{Float64}, 
+    p_f::Vector{Float64},
+    k::Int64,
+    p::Int64,
+    all_pred::Bool
+    )
+
+    maxΔ = zero(Float64)
+
+    # At first and last iterations, cycle through all predictors
+    if all_pred
+        # Non-genetic covariates
+        for j in 1:k
+            Xj = view(X, :, j)
+            v = compute_grad(Xj, w, r)
+            λj = λ * p_f[j]
+
+            last_β = β[j]
+            if last_β != 0
+                v += last_β * Swxx[j]
+            else
+                # Adding a new variable to the model
+                abs(v) < λj && continue
+                Swxx[j] = compute_Swxx(Xj, w)
             end
+            new_β = softtreshold(v, λj) / Swxx[j]
+            r += Xj * (last_β - new_β)
 
-            # Genetic covariates
-            for j in 1:p
-                Gj = view(G, :, j)
-                v = compute_grad(Gj, w, r)
-                λj = λ * p_f[k + j]
-
-                last_β = β[k + j]
-                if last_β != 0
-                    v += last_β * Swxx[k + j]
-                else
-                    # Adding a new variable to the model
-                    abs(v) < λj && continue
-                    Swxx[k + j] = compute_Swxx(Gj, w)
-                end
-                new_β = softtreshold(v, λj) / Swxx[k + j]
-                r += Gj * (last_β - new_β)
-
-                maxΔ = max(maxΔ, Swxx[k + j] * (last_β - new_β)^2)
-                β[k + j] = new_β
-            end
-
-            # Check termination condition at last iteration
-            if criterion == :obj
-                # Update μ
-                μ = updateμ(r, Ytilde, UD_inv)
-
-                # Update deviance and loss function
-                prev_loss = loss
-                dev = model_dev(family, y, r, w, μ)
-                loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
-
-                # Check termination condition
-                converged && abs(loss - prev_loss) < cd_tol * loss && break
-
-            elseif criterion == :coef
-                converged && maxΔ < cd_tol && break
-            end
+            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
+            β[j] = new_β
         end
 
+        # Genetic covariates
+        for j in 1:p
+            Gj = view(G, :, j)
+            v = compute_grad(Gj, w, r)
+            λj = λ * p_f[k + j]
+
+            last_β = β[k + j]
+            if last_β != 0
+                v += last_β * Swxx[k + j]
+            else
+                # Adding a new variable to the model
+                abs(v) < λj && continue
+                Swxx[k + j] = compute_Swxx(Gj, w)
+            end
+            new_β = softtreshold(v, λj) / Swxx[k + j]
+            r += Gj * (last_β - new_β)
+
+            maxΔ = max(maxΔ, Swxx[k + j] * (last_β - new_β)^2)
+            β[k + j] = new_β
+        end
+    else
         # Cycle over coefficients in active set only until convergence
-        maxΔ = zero(Float64)
-        
         # Non-genetic covariates
         for j in β.nzind[β.nzind .<= k]
             last_β = β[j]
@@ -436,30 +479,9 @@ function cd_lasso(
             maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
             β[j] = new_β
         end
-
-        # Check termination condition before last iteration
-        if criterion == :obj
-            # Update μ
-            μ = updateμ(r, Ytilde, UD_inv)
-
-            # Update deviance and loss function
-            prev_loss = loss
-            dev = model_dev(family, y, r, w, μ)
-            loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
-
-            # Check termination condition
-            converged = abs(loss - prev_loss) < cd_tol * loss 
-
-        elseif criterion == :coef
-            converged = maxΔ < cd_tol
-        end
     end
 
-    # Assess convergence of coordinate descent
-    @assert converged "Coordinate descent failed to converge in $cd_maxiter iterations at λ = $λ"
-
-    return(β, r)
-
+    return(maxΔ, r)
 end
 
 # Function to perform coordinate descent with a lasso penalty using strong rule
