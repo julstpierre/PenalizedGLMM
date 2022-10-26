@@ -111,7 +111,7 @@ function pglmm(
     UD_inv = U * Diagonal(w)
 
     # Transform X and G
-	Xstar = Umul!(U, X, K = 1)
+    Xstar = Umul!(U, X, K = 1)
     Gstar = Umul!(U, G)
 
     # Transform Y
@@ -225,7 +225,7 @@ function pglmm_fit(
             # Update deviance and loss function
             prev_loss = loss
             dev = LogisticDeviance(y, r, w, μ)
-            loss = dev/2 + last(λ) * sum(p_f[β.nzind] .* abs.(β.nzval))
+            loss = dev/2 + last(λ) * P(β, p_f)
             
             # If loss function did not decrease, take a half step to ensure convergence
             if loss > prev_loss + length(μ)*eps(prev_loss)
@@ -237,7 +237,7 @@ function pglmm_fit(
                     β = β_last + s * d
                     μ = updateμ(r, Ytilde, UD_inv) 
                     dev = LogisticDeviance(y, r, w, μ)
-                    loss = dev/2 + last(λ) * sum(p_f[β.nzind] .* abs.(β.nzval))
+                    loss = dev/2 + last(λ) * P(β, p_f)
                 end =#
             end 
 
@@ -346,19 +346,17 @@ function cd_lasso(
     UD_inv::Matrix{Float64},
     p_f::Vector{Float64},
     cd_maxiter::Integer = 100000,
-    cd_tol::Real=1e-8,
+    cd_tol::Real=1e-7,
     criterion,
     k::Int64,
     p::Int64
     )
 
-    converged = false
+    converged = true
     loss = Inf
 
-    # At first iteration, perform one coordinate cycle and record active set of coefficients that are nonzero
-    maxΔ, r = cycle(X, G, λ, r = r, β = β, Swxx = Swxx, w = w, p_f = p_f, k = k, p = p, all_pred = true)
-
     for cd_iter in 1:cd_maxiter
+
         # Perform one coordinate descent cycle
         maxΔ, r = cycle(X, G, λ, r = r, β = β, Swxx = Swxx, w = w, p_f = p_f, k = k, p = p, all_pred = converged)
 
@@ -370,7 +368,7 @@ function cd_lasso(
             # Update deviance and loss function
             prev_loss = loss
             dev = model_dev(family, y, r, w, μ)
-            loss = dev/2 + λ * sum(p_f[β.nzind] .* abs.(β.nzval))
+            loss = dev/2 + λ * P(β, p_f)
 
             # Check termination condition
             converged && abs(loss - prev_loss) < cd_tol * loss && break
@@ -391,40 +389,40 @@ end
 
 function cycle(
     # positional arguments
-    X::Matrix{Float64},
-    G::Matrix{Float64},
-    λ::Float64;
+    X::Matrix{T},
+    G::Matrix{T},
+    λ::T;
     #keywords arguments
-    r::Vector{Float64},
-    β::SparseVector{Float64},
-    Swxx::SparseVector{Float64},
-    w::Vector{Float64}, 
-    p_f::Vector{Float64},
+    r::Vector{T},
+    β::SparseVector{T},
+    Swxx::SparseVector{T},
+    w::Vector{T}, 
+    p_f::Vector{T},
     k::Int64,
     p::Int64,
     all_pred::Bool
-    )
+    ) where T
 
-    maxΔ = zero(Float64)
+    maxΔ = zero(T)
 
     # At first and last iterations, cycle through all predictors
     if all_pred
         # Non-genetic covariates
         for j in 1:k
-            Xj = view(X, :, j)
-            v = compute_grad(Xj, w, r)
+            v = compute_grad(X, w, r, j)
             λj = λ * p_f[j]
-
-            last_β = β[j]
-            if last_β != 0
+            
+            if j in β.nzind
+		        last_β = β[j]
                 v += last_β * Swxx[j]
             else
                 # Adding a new variable to the model
                 abs(v) < λj && continue
-                Swxx[j] = compute_Swxx(Xj, w)
+		        last_β = 0
+                Swxx[j] = compute_Swxx(X, w, j)
             end
             new_β = softtreshold(v, λj) / Swxx[j]
-            r += Xj * (last_β - new_β)
+            r = update_r(X, r, last_β - new_β, j)
 
             maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
             β[j] = new_β
@@ -432,20 +430,20 @@ function cycle(
 
         # Genetic covariates
         for j in 1:p
-            Gj = view(G, :, j)
-            v = compute_grad(Gj, w, r)
+            v = compute_grad(G, w, r, j)
             λj = λ * p_f[k + j]
 
-            last_β = β[k + j]
-            if last_β != 0
+            if k + j in β.nzind
+		        last_β = β[k+j]
                 v += last_β * Swxx[k + j]
             else
                 # Adding a new variable to the model
                 abs(v) < λj && continue
-                Swxx[k + j] = compute_Swxx(Gj, w)
+		        last_β = 0
+                Swxx[k + j] = compute_Swxx(G, w, j)
             end
             new_β = softtreshold(v, λj) / Swxx[k + j]
-            r += Gj * (last_β - new_β)
+            r = update_r(G, r, last_β - new_β, j)
 
             maxΔ = max(maxΔ, Swxx[k + j] * (last_β - new_β)^2)
             β[k + j] = new_β
@@ -457,10 +455,9 @@ function cycle(
             last_β = β[j]
             last_β == 0 && continue
             
-            Xj = view(X, :, j)
-            v = compute_grad(Xj, w, r) + last_β * Swxx[j]
+            v = compute_grad(X, w, r, j) + last_β * Swxx[j]
             new_β = softtreshold(v, λ * p_f[j]) / Swxx[j]
-            r += Xj * (last_β - new_β)
+            r = update_r(X, r, last_β - new_β, j)
 
             maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
             β[j] = new_β
@@ -471,10 +468,9 @@ function cycle(
             last_β = β[j]
             last_β == 0 && continue
             
-            Gj = view(G, :, j-k)
-            v = compute_grad(Gj, w, r) + last_β * Swxx[j]
+            v = compute_grad(G, w, r, j-k) + last_β * Swxx[j]
             new_β = softtreshold(v, λ * p_f[j]) / Swxx[j]
-            r += Gj * (last_β - new_β)
+            r = update_r(G, r, last_β - new_β, j-k)
 
             maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
             β[j] = new_β
@@ -482,158 +478,6 @@ function cycle(
     end
 
     return(maxΔ, r)
-end
-
-# Function to perform coordinate descent with a lasso penalty using strong rule
-function cd_lasso(
-    # positional arguments
-    r::Vector{Float64},
-    X::Matrix{Float64},
-    G::Matrix{Float64},
-    λ::Vector{Float64};
-    #keywords arguments
-    family::UnivariateDistribution,
-    β::SparseVector{Float64},
-    Swxx::SparseVector{Float64},
-    Ytilde::Vector{Float64},
-    y::Vector{Int64},
-    w::Vector{Float64}, 
-    UD_inv::Matrix{Float64},
-    p_f::Vector{Float64},
-    cd_maxiter::Integer = 100000,
-    cd_tol::Real=1e-8,
-    criterion,
-    k::Int64,
-    p::Int64
-    )
-
-    converged = false
-    loss = Inf
-    S = []
-
-    for cd_iter in 1:cd_maxiter
-        # At first iteration, use strong rule to 
-        # define strong set of coefficients that should be nonzero
-        if cd_iter == 1
-            # Non-genetic covariates
-            for j in 1:k
-                Xj = view(X, :, j)
-                v = compute_grad(Xj, w, r)
-                λj = (λ[2] - (λ[1] - λ[2])) * p_f[j]
-
-                if β[j] != 0
-                    push!(S, j)
-                else
-                    # Adding a new variable to the model
-                    abs(v) < λj && continue
-                    push!(S, j)
-                    Swxx[j] = compute_Swxx(Xj, w)
-                end
-            end
-
-            # Genetic covariates
-            for j in 1:p
-                Gj = view(G, :, j)
-                v = compute_grad(Gj, w, r)
-                λj = (λ[2] - (λ[1] - λ[2])) * p_f[k + j]
-
-                if β[k + j] != 0
-                    push!(S, k + j)
-                else
-                    # Adding a new variable to the model
-                    abs(v) < λj && continue
-                    push!(S, k + j)
-                    Swxx[k + j] = compute_Swxx(Gj, w)
-                end
-            end
-        end
-
-        # Cycle over coefficients in strong set only until convergence
-        maxΔ = zero(Float64)
-
-        # Non-genetic covariates
-        for j in S[S .<= k]
-            last_β = β[j]
-            Xj = view(X, :, j)
-            v = compute_grad(Xj, w, r) + last_β * Swxx[j]
-            new_β = softtreshold(v, λ[2] * p_f[j]) / Swxx[j]
-            r += Xj * (last_β - new_β)
-
-            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
-            β[j] = new_β
-        end
-
-        # Genetic predictors
-        for j in S[S .> k]
-            last_β = β[j]
-            Gj = view(G, :, j-k)
-            v = compute_grad(Gj, w, r) + last_β * Swxx[j]
-            new_β = softtreshold(v, λ[2] * p_f[j]) / Swxx[j]
-            r += Gj * (last_β - new_β)
-
-            maxΔ = max(maxΔ, Swxx[j] * (last_β - new_β)^2)
-            β[j] = new_β
-        end
-
-        # Check termination condition
-        if criterion == :obj
-            # Update μ
-            μ = updateμ(r, Ytilde, UD_inv)
-
-            # Update deviance and loss function
-            prev_loss = loss
-            dev = model_dev(family, y, r, w, μ)
-            loss = dev/2 + λ[2] * sum(p_f[β.nzind] .* abs.(β.nzval))
-
-            # Check termination condition
-            converged = abs(loss - prev_loss) < cd_tol * loss 
-
-        elseif criterion == :coef
-            converged = maxΔ < cd_tol
-        end
-
-        # Check KKT conditions at last iteration
-        if converged
-            # Non-genetic covariates
-            for j in 1:k
-                Xj = view(X, :, j)
-                v = compute_grad(Xj, w, r)
-                λj = λ[2] * p_f[j]
- 
-                if β[j] == 0
-                    # Adding a new variable to the model
-                    abs(v) < λj && continue
-                    sort!(push!(S, j))
-                    Swxx[j] = compute_Swxx(Xj, w)
-                    converged = false
-                end
-            end
-
-            # Genetic covariates
-            for j in 1:p
-                Gj = view(G, :, j)
-                v = compute_grad(Gj, w, r)
-                λj = λ[2] * p_f[k+j]
-
-                if β[k + j] == 0
-                    # Adding a new variable to the model
-                    abs(v) < λj && continue
-                    sort!(push!(S, k + j))
-                    Swxx[k + j] = compute_Swxx(Gj, w)
-                    converged = false
-                end
-            end
-        end
-
-        # Check termination condition at last iteration
-        converged && break
-    end
-
-    # Assess convergence of coordinate descent
-    @assert converged "Coordinate descent failed to converge in $cd_maxiter iterations at λ = $(last(λ))"
-
-    return(β, r)
-
 end
 
 
@@ -730,7 +574,9 @@ const PMAX = 1-1e-5
 function updateμ(r::Vector{Float64}, Ytilde::Vector{Float64}, UD_inv::Matrix{Float64})
     η = Ytilde - 4 * UD_inv * r
     μ = GLM.linkinv.(LogitLink(), η)
-    μ = [μ[i] < PMIN ? PMIN : μ[i] > PMAX ? PMAX : μ[i] for i in 1:length(μ)]
+    for i in 1:length(μ)
+        @inbounds μ[i] < PMIN ? PMIN : μ[i] > PMAX ? PMAX : μ[i]
+    end
     return(μ)
 end
 
@@ -850,10 +696,33 @@ function GIC(path::pglmmPath, criterion)
     return(argmin(GIC))
 end
 
-function compute_grad(Xj::AbstractVector{T}, w::AbstractVector{T}, r::AbstractVector{T}) where T
-    dot(Xj, Diagonal(w), r)
+function compute_grad(X::AbstractMatrix{T}, w::AbstractVector{T}, r::AbstractVector{T}, whichcol::Int) where T
+    v = zero(T)
+    for i = 1:size(X, 1)
+        @inbounds v += X[i, whichcol] * r[i] * w[i]
+    end
+    v
 end
 
-function compute_Swxx(Xj::AbstractVector{T}, w::AbstractVector{T}) where T
-    dot(Xj, Diagonal(w), Xj)
+function compute_Swxx(X::AbstractMatrix{T}, w::AbstractVector{T}, whichcol::Int) where T
+    s = zero(T)
+    for i = 1:size(X, 1)
+        @inbounds s += X[i, whichcol]^2 * w[i]
+    end
+    s
+end
+
+function update_r(X::AbstractMatrix{T}, r::AbstractVector{T}, deltaβ, whichcol::Int) where T
+    for i = 1:size(X, 1)
+        @inbounds r[i] += X[i, whichcol] * deltaβ
+    end
+    r
+end
+
+function P(β::SparseVector{T}, p_f::Vector{T}) where T
+    x = zero(T)
+    @inbounds @simd for i = 1:nnz(β)
+        x += p_f[β.nzind[i]] * abs(β.nzval[i])
+    end
+    x
 end
