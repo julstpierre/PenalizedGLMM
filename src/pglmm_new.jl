@@ -113,7 +113,7 @@ function pglmm(
 
     # Initialize β, Swxx and penalty factors
     β = standardize_X ? sparse([α .* [1; sX]; zeros(p)]) : sparse([α; zeros(p)])
-    Swxx = sparse([X' .^2 * w; zeros(p)])
+    Swxx = sparse([sum(nullmodel.X' .^2, dims=2) * w; zeros(p)] |> x-> vec(x))
     p_fX = zeros(k); p_fG = ones(p); p_f = [p_fX; p_fG]
 
     # Sequence of λ
@@ -181,7 +181,7 @@ function pglmm_fit(
     μ = zeros(length(y))
 
     # Define size of predictors
-    k, p = size(Xstar, 2), size(Gstar, 2)
+    k, p = size(X, 2), size(G, 2)
 
     # Loop through sequence of λ
     i = 0
@@ -284,7 +284,7 @@ function pglmm_fit(
     residuals = zeros(length(y), K)
 
     # Define size of predictors
-    k, p = size(Xstar, 2), size(Gstar, 2)
+    k, p = size(X, 2), size(G, 2)
 
     # Loop through sequence of λ
     i = 0
@@ -302,7 +302,7 @@ function pglmm_fit(
         last_dev_ratio = dev_ratio
 
         # Update b
-        b, r = update_b(b, r, UD_invUt)
+        b, r = update_b(b, r, UD_invUt, λ)
 
         # Run coordinate descent inner loop to update β
         β, r = cd_lasso(r, X, G; family = Normal(), Ytilde = Ytilde, y = y, w = w, β = β, Swxx = Swxx, b = b, U = U, eigvals = eigvals, p_f = p_f, λ = λ, criterion = criterion, k = k, p = p)
@@ -372,12 +372,27 @@ function update_b(
     # positional arguments
     last_b::Vector{T},
     r::Vector{T},
-    UD_invUt::Matrix{T}
+    UD_invUt::Matrix{T},
+    λ::T,
+    irls_maxiter::Integer = 30
     ) where T
 
-    # Update b and residuals
-    b = UD_invUt * (r + last_b)
-    r += last_b - b
+    b = zero(last_b)
+    converged = false
+    for irls_iter in 1:irls_maxiter
+        # Update b and residuals
+        b = UD_invUt * (r + last_b)
+        r += last_b - b
+        maxΔ = maximum((last_b - b).^2)
+        last_b = b
+
+        # Check termination conditions
+        converged = maxΔ < 1e-8
+        converged && break
+    end
+
+    # Assess convergence of IRLS
+    @assert converged "IRLS updates for b failed to converge in $irls_maxiter iterations at λ = $λ."
 
     return(b, r)
 end
@@ -423,7 +438,7 @@ function cd_lasso(
 
                 last_β = β[j]
                 if last_β != 0
-                    v += last_β * Swxxj[j]
+                    v += last_β * Swxx[j]
                 else
                     # Adding a new variable to the model
                     abs(v) < λj && continue
