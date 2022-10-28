@@ -111,12 +111,14 @@ function pglmm(
     UD_inv = U * Diagonal(w)
 
     # Transform X and G
-    Xstar = Umul!(U, X, K = 1)
-    Gstar = Umul!(U, G)
+    Xstar = Array{Float64}(undef, n, k)
+    Gstar = Array{Float64}(undef, n, p)
+    mul!(Xstar, U', X)
+    mul!(Gstar, U', G)
 
     # Transform Y
     Ystar = Array{Float64}(undef, n)
-	mul!(Ystar, U', Ytilde)
+    mul!(Ystar, U', Ytilde)
 
     # Initialize residuals and sum of squares
     r = Ystar - Xstar * β.nzval
@@ -127,7 +129,7 @@ function pglmm(
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, Xstar, Gstar, nulldev, r, w, β, Swxx, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, strongrule)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, X, Xstar, G, Gstar, nulldev, r, w, β, Swxx, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, strongrule)
 
     # If there is an intercept, separate it from betas
     if intercept
@@ -168,31 +170,34 @@ const MAX_DEV_FRAC = 0.999
 # Function to fit a penalized mixed model
 function pglmm_fit(
     ::Binomial,
-    Ytilde::Vector{Float64},
+    Ytilde::Vector{T},
     y::Vector{Int64},
-    Xstar::Matrix{Float64},
-    Gstar::Matrix{Float64},
-    nulldev::Float64,
-    r::Vector{Float64},
-    w::Vector{Float64},
-    β::SparseVector{Float64},
-    Swxx::SparseVector{Float64},
-    p_f::Vector{Float64},
-    λ_seq::Vector{Float64},
+    X::Matrix{T},
+    Xstar::Matrix{T},
+    G::Matrix{T},
+    Gstar::Matrix{T},
+    nulldev::T,
+    r::Vector{T},
+    w::Vector{T},
+    β::SparseVector{T},
+    Swxx::SparseVector{T},
+    p_f::Vector{T},
+    λ_seq::Vector{T},
     K::Int64,
-    UD_inv::Matrix{Float64},
-    U::Matrix{Float64},
+    UD_inv::Matrix{T},
+    U::Matrix{T},
     verbose::Bool,
-    irwls_tol::Float64,
-    irwls_maxiter::Int64,
+    irwls_tol::T,
+    irwls_maxiter::Int,
     criterion,
     earlystop::Bool,
     strongrule::Bool
-)
+) where T
+    
     # Initialize array to store output for each λ
     betas = zeros(length(β), K)
-    pct_dev = zeros(Float64, K)
-    dev_ratio = convert(Float64, NaN)
+    pct_dev = zeros(T, K)
+    dev_ratio = convert(T, NaN)
     fitted_means = zeros(length(y), K)
     μ = zeros(length(y))
 
@@ -207,17 +212,41 @@ function pglmm_fit(
         converged = false
         
         # Current value of λ
-        λ = strongrule ? vec(λ_seq[[max(1, i-1), i], :]) : λ_seq[i]
+        λ = λ_seq[i]
+        
+        # Check strong rule
+        if strongrule
+            dλ = 2*λ_seq[i] - λ_seq[max(1, i-1)]
+            for j in 1:k
+                j in β.nzind && continue
+                c = compute_prod(X, y, μ, j)
+                abs(c) < dλ * p_f[j] && continue
+                
+                # Force a new variable to the model
+                Swxx[j] = compute_Swxx(X, w, j)
+                β[j] = 1; β[j] = 0
+            end
+            
+            for j in 1:p
+                j+k in β.nzind && continue
+                c = compute_prod(G, y, μ, j)
+                abs(c) < dλ * p_f[j+k] && continue
+                
+                # Force a new variable to the model
+                Swxx[j+k] = compute_Swxx(G, w, j)
+                β[j+k] = 1; β[j+k] = 0
+            end
+        end
 
         # Initialize objective function and save previous deviance ratio
-        dev = loss = convert(Float64, Inf)
+        dev = loss = convert(T, Inf)
         last_dev_ratio = dev_ratio
         
         # Penalized iterative weighted least squares (IWLS)
         for irwls in 1:irwls_maxiter
 
             # Run coordinate descent inner loop to update β and r
-            β, r = cd_lasso(r, Xstar, Gstar, λ; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, β = β, Swxx = Swxx, p_f = p_f, criterion = criterion, k = k, p = p)
+            cd_lasso(Xstar, Gstar, λ; family = Binomial(), Ytilde = Ytilde, y = y, w = w, UD_inv = UD_inv, r = r, β = β, Swxx = Swxx, p_f = p_f, criterion = criterion, k = k, p = p, strongrule = strongrule)
 
             # Update μ
             μ = updateμ(r, Ytilde, UD_inv)
@@ -246,6 +275,11 @@ function pglmm_fit(
 
             # Check termination conditions
             converged = abs(loss - prev_loss) < irwls_tol * loss
+            
+            # Check KKT conditions at last iteration if strongrule is used
+            if converged && strongrule
+                maxΔ, converged = cycle(Xstar, Gstar, λ, r = r, β = β, Swxx = Swxx, w = w, p_f = p_f, k = k, p = p, all_pred = true)
+            end
             converged && verbose && println("Number of irwls iterations = $irwls at $i th value of λ.")
             converged && break 
 
@@ -332,25 +366,26 @@ end
 # Function to perform coordinate descent with a lasso penalty
 function cd_lasso(
     # positional arguments
-    r::Vector{Float64},
-    X::Matrix{Float64},
-    G::Matrix{Float64},
-    λ::Float64;
+    X::Matrix{T},
+    G::Matrix{T},
+    λ::T;
     #keywords arguments
     family::UnivariateDistribution,
-    β::SparseVector{Float64},
-    Swxx::SparseVector{Float64},
-    Ytilde::Vector{Float64},
-    y::Vector{Int64},
-    w::Vector{Float64}, 
-    UD_inv::Matrix{Float64},
-    p_f::Vector{Float64},
+    r::Vector{T},
+    β::SparseVector{T},
+    Swxx::SparseVector{T},
+    Ytilde::Vector{T},
+    y::Vector{Int},
+    w::Vector{T}, 
+    UD_inv::Matrix{T},
+    p_f::Vector{T},
     cd_maxiter::Integer = 100000,
     cd_tol::Real=1e-7,
     criterion,
-    k::Int64,
-    p::Int64
-    )
+    k::Int,
+    p::Int,
+    strongrule::Bool
+    ) where T
 
     converged = true
     loss = Inf
@@ -358,7 +393,7 @@ function cd_lasso(
     for cd_iter in 1:cd_maxiter
 
         # Perform one coordinate descent cycle
-        maxΔ, r = cycle(X, G, λ, r = r, β = β, Swxx = Swxx, w = w, p_f = p_f, k = k, p = p, all_pred = converged)
+        maxΔ, = cycle(X, G, λ, r = r, β = β, Swxx = Swxx, w = w, p_f = p_f, k = k, p = p, all_pred = converged && !strongrule, strongrule = strongrule)
 
         # Check termination condition before last iteration
         if criterion == :obj
@@ -383,8 +418,6 @@ function cd_lasso(
     # Assess convergence of coordinate descent
     @assert converged "Coordinate descent failed to converge in $cd_maxiter iterations at λ = $λ"
 
-    return(β, r)
-
 end
 
 function cycle(
@@ -398,12 +431,14 @@ function cycle(
     Swxx::SparseVector{T},
     w::Vector{T}, 
     p_f::Vector{T},
-    k::Int64,
-    p::Int64,
-    all_pred::Bool
+    k::Int,
+    p::Int,
+    all_pred::Bool,
+    strongrule=false
     ) where T
 
     maxΔ = zero(T)
+    kkt_check = true
 
     # At first and last iterations, cycle through all predictors
     if all_pred
@@ -413,12 +448,13 @@ function cycle(
             λj = λ * p_f[j]
             
             if j in β.nzind
-		        last_β = β[j]
+                last_β = β[j]
                 v += last_β * Swxx[j]
             else
                 # Adding a new variable to the model
                 abs(v) < λj && continue
-		        last_β = 0
+                kkt_check = false
+                last_β = 0
                 Swxx[j] = compute_Swxx(X, w, j)
             end
             new_β = softtreshold(v, λj) / Swxx[j]
@@ -434,12 +470,13 @@ function cycle(
             λj = λ * p_f[k + j]
 
             if k + j in β.nzind
-		        last_β = β[k+j]
+                last_β = β[k+j]
                 v += last_β * Swxx[k + j]
             else
                 # Adding a new variable to the model
                 abs(v) < λj && continue
-		        last_β = 0
+                kkt_check = false
+                last_β = 0
                 Swxx[k + j] = compute_Swxx(G, w, j)
             end
             new_β = softtreshold(v, λj) / Swxx[k + j]
@@ -453,7 +490,7 @@ function cycle(
         # Non-genetic covariates
         for j in β.nzind[β.nzind .<= k]
             last_β = β[j]
-            last_β == 0 && continue
+            last_β == 0 && !strongrule && continue
             
             v = compute_grad(X, w, r, j) + last_β * Swxx[j]
             new_β = softtreshold(v, λ * p_f[j]) / Swxx[j]
@@ -466,7 +503,7 @@ function cycle(
         # Genetic predictors
         for j in β.nzind[β.nzind .> k]
             last_β = β[j]
-            last_β == 0 && continue
+            last_β == 0 && !strongrule && continue
             
             v = compute_grad(G, w, r, j-k) + last_β * Swxx[j]
             new_β = softtreshold(v, λ * p_f[j]) / Swxx[j]
@@ -477,7 +514,7 @@ function cycle(
         end
     end
 
-    return(maxΔ, r)
+    return(maxΔ, kkt_check)
 end
 
 
@@ -499,8 +536,8 @@ struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray}
     fitted_values                               # fitted_values
     y::Union{Vector{Int64}, Vector{Float64}}    # eigenvalues vector
     UD_inv::Matrix{Float64}                     # eigenvectors matrix times diagonal weights matrix
-    τ::Vector{Float64}                        	# estimated variance components
-    intercept::Bool				# boolean for intercept
+    τ::Vector{Float64}                          # estimated variance components
+    intercept::Bool             # boolean for intercept
 end
 
 function show(io::IO, g::pglmmPath)
@@ -704,6 +741,14 @@ function compute_grad(X::AbstractMatrix{T}, w::AbstractVector{T}, r::AbstractVec
     v
 end
 
+function compute_prod(X::AbstractMatrix{T}, y::AbstractVector{Int}, p::AbstractVector{T}, whichcol::Int) where T
+    v = zero(T)
+    for i = 1:size(X, 1)
+        @inbounds v += X[i, whichcol] * (y[i] - p[i])
+    end
+    v
+end
+
 function compute_Swxx(X::AbstractMatrix{T}, w::AbstractVector{T}, whichcol::Int) where T
     s = zero(T)
     for i = 1:size(X, 1)
@@ -712,7 +757,7 @@ function compute_Swxx(X::AbstractMatrix{T}, w::AbstractVector{T}, whichcol::Int)
     s
 end
 
-function update_r(X::AbstractMatrix{T}, r::AbstractVector{T}, deltaβ, whichcol::Int) where T
+function update_r(X::AbstractMatrix{T}, r::AbstractVector{T}, deltaβ::T, whichcol::Int) where T
     for i = 1:size(X, 1)
         @inbounds r[i] += X[i, whichcol] * deltaβ
     end
