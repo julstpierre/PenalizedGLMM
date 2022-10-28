@@ -38,7 +38,7 @@ function pglmm(
     standardize_weights::Bool = false,
     criterion = :coef,
     earlystop::Bool = true,
-    strongrule::Bool = false,
+    strongrule::Bool = true,
     kwargs...
     )
     
@@ -103,7 +103,7 @@ function pglmm(
         Ytilde = nullmodel.η + 4 * (y - μ)
         nulldev = -2 * sum(y * log(ybar / (1 - ybar)) .+ log(1 - ybar))
     elseif nullmodel.family == Normal()
-        Ytilde = y
+        Ytilde, μ = y, nullmodel.η
         nulldev = dot(y .- mean(y), Diagonal(w), y .- mean(y))
     end
 
@@ -125,7 +125,7 @@ function pglmm(
     Swxx = sparse([Xstar' .^2 * w; zeros(p)]) 
 
     # Sequence of λ
-    λ_seq, K = lambda_seq(Ystar, Xstar, Gstar; weights = w_n, p_f = p_f)
+    λ_seq, K = lambda_seq(y - μ, X, G; weights = ones(n), p_f = p_f)
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
@@ -548,7 +548,7 @@ end
 
 # Function to compute sequence of values for λ
 function lambda_seq(
-    y::Vector{Float64}, 
+    r::Vector{Float64}, 
     X::Matrix{Float64},
     G::Matrix{Float64}; 
     weights::Vector{Float64},
@@ -556,9 +556,9 @@ function lambda_seq(
     K::Integer = 100
     )
 
-    λ_min_ratio = (length(y) < size(G, 2) ? 1e-2 : 1e-4)
-    λ_max = lambda_max(X, y, weights, p_f[1:size(X, 2)])
-    λ_max = lambda_max(G, y, weights, p_f[(size(X, 2) + 1):end], λ_max)
+    λ_min_ratio = (length(r) < size(G, 2) ? 1e-2 : 1e-4)
+    λ_max = lambda_max(X, r, weights, p_f[1:size(X, 2)])
+    λ_max = lambda_max(G, r, weights, p_f[(size(X, 2) + 1):end], λ_max)
     λ_min = λ_max * λ_min_ratio
     λ_step = log(λ_min_ratio)/(K - 1)
     λ_seq = exp.(collect(log(λ_max):λ_step:log(λ_min)))
@@ -567,12 +567,11 @@ function lambda_seq(
 end
 
 # Function to compute λ_max
-function lambda_max(X::AbstractMatrix{T}, y::AbstractVector{T}, w::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T)) where T
+function lambda_max(X::AbstractMatrix{T}, r::AbstractVector{T}, w::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T)) where T
 
-    wY = w .* y
     seq = findall(x-> x != 0, p_f)
     for j in seq
-        x = abs(dot(view(X, :,j), wY))
+        x = abs(compute_grad(X, w, r, j))
         if x > λ_max
             λ_max = x
         end
