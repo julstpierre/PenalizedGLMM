@@ -223,7 +223,7 @@ function pglmm_fit(
                 abs(c) < dλ * p_f[j] && continue
                 
                 # Force a new variable to the model
-                Swxx[j] = compute_Swxx(X, w, j)
+                Swxx[j] = compute_Swxx(Xstar, w, j)
                 β[j] = 1; β[j] = 0
             end
             
@@ -233,7 +233,7 @@ function pglmm_fit(
                 abs(c) < dλ * p_f[j+k] && continue
                 
                 # Force a new variable to the model
-                Swxx[j+k] = compute_Swxx(G, w, j)
+                Swxx[j+k] = compute_Swxx(Gstar, w, j)
                 β[j+k] = 1; β[j+k] = 0
             end
         end
