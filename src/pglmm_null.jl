@@ -23,11 +23,12 @@ function pglmm_null(
     grminds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     family::UnivariateDistribution = Binomial(),
     link::GLM.Link = LogitLink(),
+    GEIvar::Union{Nothing,AbstractString} = nothing,
     M::Union{Nothing, Vector{Any}} = nothing,
-    tol::Float64 = 1e-5,
+    tol::T = 1e-5,
     maxiter::Integer = 500,
     kwargs...
-    )
+    ) where T
 
     #--------------------------------------------------------------
     # Read input files
@@ -63,7 +64,9 @@ function pglmm_null(
     #--------------------------------------------------------------
     # Define the derivative of link function g at the mean value μ
     if link == LogitLink()
-        dg = function(μ::Array{Float64}) 1 ./ (μ .* (1 .- μ)) end
+        dg = function(μ::Array{Float64}) 
+            [1 / (μ[i] * (1 - μ[i])) for i in 1:length(μ)] 
+        end
     elseif link == IdentityLink()
         dg = function(μ::Array{Float64}) 1 end
     end
@@ -93,22 +96,31 @@ function pglmm_null(
     η = GLM.linkfun.(link, μ)
     Ytilde = η + dg(μ) .* (y - μ)
 
-    # Number of variance components in the model
-    if isnothing(M)
-        K = 1
-        V = push!(Any[], GRM)
-    else
-        K = 1 + size(M, 1)
-        V = reverse(push!(M, GRM))
+    # Create list of similarity matrices
+    V = push!(Any[], GRM)
+
+    # Add GEI similarity matrix
+    ind_D = nothing
+    if !isnothing(GEIvar)
+        ind_D = findall(coefnames(nullfit) .== GEIvar)
+        D = vec(X[:, ind_D])
+        V_D = D * D'
+        for j in findall(x -> x == 0, D), i in findall(x -> x == 0, D)  
+                V_D[i, j] = 1 
+        end
+        push!(V, sparse(GRM .* V_D))
+    end
+
+    # Add variance components in the model
+    if !isnothing(M) 
+        [push!(V, M[i]) for i in 1:length(M)] 
     end
 
     # For Normal family, dispersion parameter needs to be estimated
-    if family == Normal() 
-        K += 1
-        V = reverse(push!(reverse(V), Diagonal(ones(n))))
-    end 
+    if family == Normal() pushfirst!(V, Diagonal(ones(n))) end 
 
     # Obtain initial values for variance components
+    K = length(V)
     theta0 = fill(var(Ytilde) / K, K)
 
     # Initialize number of steps
@@ -152,6 +164,7 @@ function pglmm_null(
                    τV = τV,
                    y = y,
                    X = X,
+                   ind_D = ind_D,
                    family = family)
             break
         else
