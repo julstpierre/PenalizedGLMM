@@ -19,7 +19,7 @@ using PenalizedGLMM
 
 ## Example data sets
 
-The data folder of the package contains genetic data for 2504 individuals and 5000 SNPs from the 1000Genomes Project in PLINK format. The covariate.txt file contains the population from which each individual belongs, the first 10 PCs, sex and training/test sets assignments. We also simulated AGE and a binary phenotype for all individuals. Finally, we also include a GRM in the form of a compressed .txt file that was calculated using the function `grm` from [SnpArrays.jl](https://openmendel.github.io/SnpArrays.jl/latest/).
+The data folder of the package contains genetic data for 2504 individuals and 5000 SNPs from the [1000Genomes](https://www.internationalgenome.org/data/) Project in PLINK format. The covariate.txt file contains the population from which each individual belongs, the first 10 PCs, sex and training/test sets assignments. We also simulated a covariate AGE and a binary phenotype for all individuals. Finally, we also include a GRM in the form of a compressed .txt file that was calculated using the function `grm` from [SnpArrays.jl](https://openmendel.github.io/SnpArrays.jl/latest/).
 
 
 ```julia
@@ -29,7 +29,7 @@ const plinkfile = datadir * "geno"
 const grmfile = datadir * "grm.txt.gz";
 ```
 
-## 1. Estimate the variance components under the null
+## 1. Estimation of variance components under the null
 
 We read the example covariate file and find the corresponding rows for subjects in the train and test sets:
 
@@ -41,7 +41,7 @@ trainrowinds = findall(covdf.train)
 testrowinds = setdiff(1:nrow(covdf), trainrowinds);
 ```
 
-We fit the null logistic mixed model on the training set, with SEX as fixed effect and one random effect with variance-covariance structure parametrized by the GRM:
+We fit the null logistic mixed model on the training set, with AGE, SEX as fixed effects and one random effect with variance-covariance structure parametrized by the GRM:
 
 
 ```julia
@@ -80,7 +80,7 @@ print(nullmodel.converged)
 
     true
 
-## 2. Fit a penalized logistic mixed model
+## 2. Penalized logistic mixed model
 After obtaining the variance components estimates under the null, we fit a penalized logistic mixed model using a lasso regularization term on the SNP effects in order to perform variable selection:
 
 
@@ -171,9 +171,9 @@ The estimated values for the intercept and non-genetic covariates are stored in 
 
 
 
-## 3. Calculate Polygenic Risk Score (PRS) on test set
+## 3. Polygenic Risk Score (PRS)
 
-We can calculate a PRS for each individual in the test set:
+We can calculate a PRS for each individual in the test set using the predict function. By default, predictions are obtained on the full lasso path, but it is also possible to provide a vector containing indices for the values of the regulatization parameter λ. For example, we can predict a PRS for each individual in the test set using the estimated coefficients from the models obtained by using AIC and BIC respectively:
 
 
 ```julia
@@ -204,7 +204,7 @@ print(first(yhat, 5))
        4 │ 0.682049  0.570351
        5 │ 0.28341   0.344761
 
-We can determine which model provides best prediction accuracy by comparing AUCs for the PRSs obtained via AIC and BIC. We use the [ROCAnalysis.jl](https://juliapackages.com/p/rocanalysis) package to calculate AUC for each model:
+We can determine which model provides the best prediction accuracy by comparing AUCs for the PRSs obtained via AIC and BIC. We use the [ROCAnalysis.jl](https://juliapackages.com/p/rocanalysis) package to calculate AUC for each model:
 
 
 ```julia
