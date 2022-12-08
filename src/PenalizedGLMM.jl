@@ -10,7 +10,7 @@ export pglmm_null
 export pglmm
 
 include("pglmm_null.jl")
-include("pglmm.jl")
+include("pglmm_new.jl")
 include("utils.jl")
 
 end
