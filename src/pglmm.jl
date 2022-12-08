@@ -129,7 +129,7 @@ function pglmm(
     K = isnothing(K_) ? K : K_
     
     # Fit penalized model
-    path = pglmm_fit(nullmodel.family, Ytilde, y, X, Xstar, G, Gstar, nulldev, r, w, β, Swxx, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, strongrule)
+    path = pglmm_fit(nullmodel.family, Ytilde, y, X, Xstar, G, Gstar, nulldev, r, w, μ, β, Swxx, p_f, λ_seq, K, UD_inv, U, verbose, irwls_tol, irwls_maxiter, criterion, earlystop, strongrule)
 
     # If there is an intercept, separate it from betas
     if intercept
@@ -179,6 +179,7 @@ function pglmm_fit(
     nulldev::T,
     r::Vector{T},
     w::Vector{T},
+    μ::Vector{T},
     β::SparseVector{T},
     Swxx::SparseVector{T},
     p_f::Vector{T},
@@ -199,7 +200,6 @@ function pglmm_fit(
     pct_dev = zeros(T, K)
     dev_ratio = convert(T, NaN)
     fitted_means = zeros(length(y), K)
-    μ = zeros(length(y))
 
     # Define size of predictors
     k, p = size(Xstar, 2), size(Gstar, 2)
@@ -548,13 +548,13 @@ end
 
 # Function to compute sequence of values for λ
 function lambda_seq(
-    r::Vector{Float64}, 
-    X::Matrix{Float64},
-    G::Matrix{Float64}; 
-    weights::Vector{Float64},
-    p_f::Vector{Float64},
+    r::Vector{T}, 
+    X::Matrix{T},
+    G::Matrix{T}; 
+    weights::Vector{T},
+    p_f::Vector{T},
     K::Integer = 100
-    )
+    ) where T
 
     λ_min_ratio = (length(r) < size(G, 2) ? 1e-2 : 1e-4)
     λ_max = lambda_max(X, r, weights, p_f[1:size(X, 2)])
