@@ -196,16 +196,14 @@ The predicted probabilities for the first 5 subjects are equal to:
 
 
 ```julia
-pretty_table_with_conf(set_pt_conf(tf = tf_markdown, alignment = :c), hcat(covdf.IID[testrowinds], yhat)[1:5, :], ["IID", "AIC", "BIC"])
+DataFrame(hcat(covdf.IID[testrowinds], yhat)[1:5, :], [:IID, :AIC, :BIC"])
 ```
 
-    |[1m   IID   [0m|[1m   AIC    [0m|[1m   BIC    [0m|
-    |---------|----------|----------|
-    | HG00099 | 0.334916 | 0.472156 |
-    | HG00105 | 0.254587 | 0.357044 |
-    | HG00108 | 0.613588 | 0.557021 |
-    | HG00119 | 0.682049 | 0.570351 |
-    | HG00125 | 0.28341  | 0.344761 |
+
+
+
+<div class="data-frame"><p>5 rows × 3 columns</p><table class="data-frame"><thead><tr><th></th><th>IID</th><th>AIC</th><th>BIC</th></tr><tr><th></th><th title="Any">Any</th><th title="Any">Any</th><th title="Any">Any</th></tr></thead><tbody><tr><th>1</th><td>HG00099</td><td>0.334916</td><td>0.472156</td></tr><tr><th>2</th><td>HG00105</td><td>0.254587</td><td>0.357044</td></tr><tr><th>3</th><td>HG00108</td><td>0.613588</td><td>0.557021</td></tr><tr><th>4</th><td>HG00119</td><td>0.682049</td><td>0.570351</td></tr><tr><th>5</th><td>HG00125</td><td>0.28341</td><td>0.344761</td></tr></tbody></table></div>
+
 
 
 We can determine which model provides the best prediction accuracy by comparing AUCs for the PRSs obtained via AIC and BIC. We use the [ROCAnalysis.jl](https://juliapackages.com/p/rocanalysis) package to calculate AUC for each model:
@@ -217,12 +215,14 @@ ctrls = (covdf[testrowinds,:y] .== 0)
 cases = (covdf[testrowinds,:y] .== 1)
 
 [ROCAnalysis.auc(roc(yhat[ctrls, i], yhat[cases, i])) for i in 1:2]' |> 
-    x-> pretty_table_with_conf(set_pt_conf(tf = tf_markdown, alignment = :c), hcat("AUC", x), ["", "AIC", "BIC"])
+    x-> pretty_table_with_conf(set_pt_conf(tf = tf_unicode_rounded, alignment = :c), hcat("AUC", x), ["", "AIC", "BIC"])
 ```
 
-    |[1m     [0m|[1m   AIC    [0m|[1m   BIC   [0m|
-    |-----|----------|---------|
-    | AUC | 0.782088 | 0.76029 |
+    ╭─────┬──────────┬─────────╮
+    │[1m     [0m│[1m   AIC    [0m│[1m   BIC   [0m│
+    ├─────┼──────────┼─────────┤
+    │ AUC │ 0.782088 │ 0.76029 │
+    ╰─────┴──────────┴─────────╯
 
 
 We see that the model based on AIC resulted in a higher prediction accuracy, but the model based on BIC has selected 12 times less predictors than the model based on AIC:
@@ -230,12 +230,14 @@ We see that the model based on AIC resulted in a higher prediction accuracy, but
 
 ```julia
 [length(findall(modelfit.betas[:,k] .!= 0)) for k in (pglmmAIC, pglmmBIC)]' |> 
-    x-> pretty_table_with_conf(set_pt_conf(tf = tf_markdown, alignment = :c), hcat("Number of predictors", x), ["","AIC", "BIC"])
+    x-> pretty_table_with_conf(set_pt_conf(tf = tf_compact, alignment = :c), hcat("Number of predictors", x), ["","AIC", "BIC"]);
 ```
 
-    |[1m                      [0m|[1m AIC [0m|[1m BIC [0m|
-    |----------------------|-----|-----|
-    | Number of predictors | 181 | 15  |
+     ---------------------- ----- -----
+     [1m                      [0m [1m AIC [0m [1m BIC [0m
+     ---------------------- ----- -----
+      Number of predictors   181   15
+     ---------------------- ----- -----
 
 
 If we know which predictors are truly causal (for simulated data), then we can compare the true positive rate (TPR), false positive rate (FPR) and false discovery rate (FDR) of each model selection strategy:
@@ -254,11 +256,13 @@ FPR = [(length(x) - length(intersect(true_betas, x))) / (size(modelfit.betas, 1)
 
 FDR = [(length(x) - length(intersect(true_betas, x))) / length(x) for x in (AIC_betas, BIC_betas)]'
 
-pretty_table_with_conf(set_pt_conf(tf = tf_markdown, alignment = :c), hcat(["AIC", "BIC"], [TPR; FPR; FDR]'), ["Model", "TPR", "FPR", "FDR"], formatters = ft_printf("%5.4f"))
+pretty_table_with_conf(set_pt_conf(tf = tf_compact, alignment = :c), hcat(["AIC", "BIC"], [TPR; FPR; FDR]'), ["Model", "TPR", "FPR", "FDR"], formatters = ft_printf("%5.4f"))
 ```
 
-    |[1m Model [0m|[1m  TPR   [0m|[1m  FPR   [0m|[1m  FDR   [0m|
-    |-------|--------|--------|--------|
-    |  AIC  | 0.5800 | 0.0307 | 0.8398 |
-    |  BIC  | 0.2200 | 0.0008 | 0.2667 |
+     ------- -------- -------- --------
+     [1m Model [0m [1m  TPR   [0m [1m  FPR   [0m [1m  FDR   [0m
+     ------- -------- -------- --------
+       AIC    0.5800   0.0307   0.8398
+       BIC    0.2200   0.0008   0.2667
+     ------- -------- -------- --------
 
