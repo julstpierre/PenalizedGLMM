@@ -196,7 +196,7 @@ The predicted probabilities for the first 5 subjects are equal to:
 
 
 ```julia
-DataFrame(hcat(covdf.IID[testrowinds], yhat)[1:5, :], [:IID, :AIC, :BIC"])
+DataFrame(hcat(covdf.IID[testrowinds], yhat)[1:5, :], [:IID, :AIC, :BIC])
 ```
 
 
@@ -214,15 +214,19 @@ using ROCAnalysis
 ctrls = (covdf[testrowinds,:y] .== 0)
 cases = (covdf[testrowinds,:y] .== 1)
 
+using Latexify
 [ROCAnalysis.auc(roc(yhat[ctrls, i], yhat[cases, i])) for i in 1:2]' |> 
-    x-> pretty_table_with_conf(set_pt_conf(tf = tf_unicode_rounded, alignment = :c), hcat("AUC", x), ["", "AIC", "BIC"])
+    x-> DataFrame(x, [:AIC, :BIC]) |> x-> latexify(x, fmt = "%5.4f")
 ```
 
-    ╭─────┬──────────┬─────────╮
-    │[1m     [0m│[1m   AIC    [0m│[1m   BIC   [0m│
-    ├─────┼──────────┼─────────┤
-    │ AUC │ 0.782088 │ 0.76029 │
-    ╰─────┴──────────┴─────────╯
+
+
+
+|      AIC |      BIC |
+| --------:| --------:|
+| $0.7821$ | $0.7603$ |
+
+
 
 
 We see that the model based on AIC resulted in a higher prediction accuracy, but the model based on BIC has selected 12 times less predictors than the model based on AIC:
