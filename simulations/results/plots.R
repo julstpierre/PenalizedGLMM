@@ -169,7 +169,7 @@ df2boxplot <- function(file, ylab, methods, geo_ = NULL, K_ = NULL, kin_ = "NONE
     #df[df$method == "glmnetPC", "method"] <- "glmnetPC (CV)"
     #df[df$method == "glmnet", "method"] <- "glmnet (CV)"
     df[df$method == "pglmmAIC", "method"] <- "pglmm (AIC)"
-    df[df$method == "pglmmBIC", "method"] <- "standard gBLUP"
+    df[df$method == "pglmmBIC", "method"] <- "gBLUP"
     df[df$method == "pglmm", "method"] <- "pglmm (CV)"
   }
   
@@ -181,7 +181,7 @@ df2boxplot <- function(file, ylab, methods, geo_ = NULL, K_ = NULL, kin_ = "NONE
                 median = median(value), 
                 IQR = IQR(value))
   } else if (length(unique(df$geo)) > 1){
-    ggplot(df,aes(x=method,y=value,color = method))+
+    ggplot(df, aes(x=method,y=value,color = as.factor(method)))+
       geom_boxplot(outlier.shape=)+
       facet_grid(K~geo, labeller=label_bquote(cols=.(geo),rows=K==.(K)))+
       labs(x="Method",y=ylab)+
@@ -198,12 +198,17 @@ df2boxplot <- function(file, ylab, methods, geo_ = NULL, K_ = NULL, kin_ = "NONE
             axis.line.y = element_line(color="black", size = 0.5))
   } else{
       if (!all(is.na(c(ymax,ymin)))){
-      ggplot(df,aes(x=method,y=value,color = method))+
+        ggplot(df, aes(x=method,y=value,fill=method))+
         geom_boxplot()+
         ylim(ymin,ymax)+
         labs(x="Method",y=ylab)+
-        scale_color_brewer(palette = "Set2") +
-        theme_bw() + 
+          scale_fill_manual(values = c("ggmix" = "green4",
+                                        "glmnet"="firebrick2",
+                                        "glmnetPC"="cornflowerblue",
+                                        "pglmm (AIC)"="goldenrod",
+                                        "pglmm (CV)" = "grey",
+                                       "gBLUP" = "darksalmon"))+
+          theme_bw() + 
         theme(axis.title.x=element_blank(),
               axis.text.x=element_blank(),
               axis.ticks.x=element_blank())+
@@ -214,10 +219,15 @@ df2boxplot <- function(file, ylab, methods, geo_ = NULL, K_ = NULL, kin_ = "NONE
         theme(axis.line.x = element_line(color="black", size = 0.5),
               axis.line.y = element_line(color="black", size = 0.5))
       } else {
-        ggplot(df,aes(x=method,y=value,color = method))+
+          ggplot(df, aes(x=method,y=value,fill=method))+
           geom_boxplot()+
           labs(x="Method",y=ylab)+
-          scale_color_brewer(palette = "Set2") +
+          scale_fill_manual(values = c("ggmix" = "green4",
+                                       "glmnet"="firebrick2",
+                                       "glmnetPC"="cornflowerblue",
+                                       "pglmm (AIC)"="goldenrod",
+                                       "pglmm (CV)" = "grey",
+                                       "gBLUP" = "darksalmon"))+
           theme_bw() + 
           theme(axis.title.x=element_blank(),
                 axis.text.x=element_blank(),
@@ -285,6 +295,49 @@ df <- rbind(
 ggplot(df, aes(y=as.numeric(mse), x=as.numeric(K), colour=method, linetype=method)) +
   geom_line() +
   labs(y=expression(paste("MSE (", hat(beta), ")")), x="lambda index")+
+  scale_colour_grey(start=0.7, end=0.1)+
+  theme_bw() +
+  theme(plot.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank() )+
+  #theme(panel.border= element_blank())+
+  theme(axis.line.x = element_line(color="black", size = 0.5),
+        axis.line.y = element_line(color="black", size = 0.5))
+
+#----------------------------
+# Timing simulations
+#----------------------------
+library(tidyr)
+time_df <- read.csv("time.csv") %>% 
+  pivot_longer(
+    cols = c(pglmm_median, glmnet_median, ggmix_median),
+    names_to = "method",
+    values_to = "time"
+  ) %>%
+  mutate(n = replace(n, n == 3125, 2500)) %>%
+  mutate(n = replace(n, n == 6250, 5000)) %>%
+  mutate(n = replace(n, n == 9375, 7500)) %>%
+  mutate(method = replace(method, method == "pglmm_median", "pglmm")) %>%
+  mutate(method = replace(method, method == "glmnet_median", "glmnet")) %>%
+  mutate(method = replace(method, method == "ggmix_median", "ggmix"))
+
+ggplot(time_df, aes(x=as.factor(n), y=as.numeric(time/60), group = method, colour=method, linetype=method)) +
+  geom_line() +
+  labs(y="Time (minutes)", x="Sample size")+
+  facet_wrap(vars(p), labeller = label_both) +
+  scale_colour_grey(start=0.7, end=0.1)+
+  theme_bw() +
+  theme(plot.background = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank() )+
+  #theme(panel.border= element_blank())+
+  theme(axis.line.x = element_line(color="black", size = 0.5),
+        axis.line.y = element_line(color="black", size = 0.5))
+
+ggplot(time_df, aes(x=as.factor(p), y=as.numeric(time/60), group = method, colour=method, linetype=method)) +
+  geom_line() +
+  labs(y="Time (minutes)", x="Model size")+
+  facet_wrap(vars(n), labeller = label_both) +
   scale_colour_grey(start=0.7, end=0.1)+
   theme_bw() +
   theme(plot.background = element_blank(),
