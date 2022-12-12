@@ -24,7 +24,7 @@ function pglmm_null(
     family::UnivariateDistribution = Binomial(),
     link::GLM.Link = LogitLink(),
     GEIvar::Union{Nothing,AbstractString} = nothing,
-    GEIkin::bool = true,
+    GEIkin::Bool = true,
     M::Union{Nothing, Vector{Any}} = nothing,
     tol::T = 1e-5,
     maxiter::Integer = 500,
