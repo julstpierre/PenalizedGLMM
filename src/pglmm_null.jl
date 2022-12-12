@@ -24,6 +24,7 @@ function pglmm_null(
     family::UnivariateDistribution = Binomial(),
     link::GLM.Link = LogitLink(),
     GEIvar::Union{Nothing,AbstractString} = nothing,
+    GEIkin::bool = true,
     M::Union{Nothing, Vector{Any}} = nothing,
     tol::T = 1e-5,
     maxiter::Integer = 500,
@@ -103,12 +104,14 @@ function pglmm_null(
     ind_D = nothing
     if !isnothing(GEIvar)
         ind_D = findall(coefnames(nullfit) .== GEIvar)
-        D = vec(X[:, ind_D])
-        V_D = D * D'
-        for j in findall(x -> x == 0, D), i in findall(x -> x == 0, D)  
-                V_D[i, j] = 1 
+        if GEIkin
+            D = vec(X[:, ind_D])
+            V_D = D * D'
+            for j in findall(x -> x == 0, D), i in findall(x -> x == 0, D)  
+                    V_D[i, j] = 1 
+            end
+            push!(V, sparse(GRM .* V_D))
         end
-        push!(V, sparse(GRM .* V_D))
     end
 
     # Add variance components in the model
