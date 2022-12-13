@@ -837,7 +837,7 @@ function cycle(
                 v += last_γ * Swdg[j]
             else
                 kkt_check = false
-                last_γ = 0
+                last_γ, γ[j] = 0, 1
                 Swdg[j] = compute_Swxx(D, G, w, j)
             end
 
@@ -852,11 +852,11 @@ function cycle(
                 v += last_β * Swgg[j]
             else
                 kkt_check = false
-                last_β = 0
+                last_β, β[j] = 0, 1
                 Swgg[j] = compute_Swxx(G, w, j)
             end
 
-            new_β = new_γ != 0 ? v / (Swgg[j] + λj / norm((last_γ, β[j]))) : softtreshold(v, λj) / Swgg[j]
+            new_β = new_γ != 0 ? v / (Swgg[j] + λj / norm((last_γ, last_β))) : softtreshold(v, λj) / Swgg[j]
             r = update_r(G, r, last_β - new_β, j)
 
             maxΔ = max(maxΔ, Swgg[j] * (last_β - new_β)^2, Swdg[j] * (last_γ - new_γ)^2)
