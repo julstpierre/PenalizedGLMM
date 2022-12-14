@@ -866,7 +866,7 @@ function cycle(
         r = update_r(D, G, r, last_γ - new_γ, j)
 
         v = compute_grad(G, w, r, j) + last_β * Swgg[j]
-        new_β = new_γ != 0 ? v / (Swgg[j] + λj / norm((last_γ, last_β))) : softtreshold(v, λj) / Swgg[j]
+        new_β = v / (Swgg[j] + λj / norm((last_γ, last_β)))
         r = update_r(G, r, last_β - new_β, j)
 
         maxΔ = max(maxΔ, Swgg[j] * (last_β - new_β)^2, Swdg[j] * (last_γ - new_γ)^2)
