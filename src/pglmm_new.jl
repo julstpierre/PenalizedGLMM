@@ -683,14 +683,14 @@ function cycle(
     end
 
     # GEI and genetic effects
-    for j in γ.nzind
+    for j in β.nzind
         λj = λ * p_fG[j]
 
         # Update GEI effect
-        last_γ = γ[j]
+        last_γ, last_β = γ[j], β[j]
         v = compute_grad(D, G, w, r, j) + last_γ * Swdg[j]
         if abs(v) > λj
-            new_γ = softtreshold(v, λj) / (Swdg[j] + λj / norm((γ[j], β[j])))
+            new_γ = softtreshold(v, λj) / (Swdg[j] + λj / norm((last_γ, last_β)))
             r = update_r(D, G, r, last_γ - new_γ, j)
 
             maxΔ = max(maxΔ, Swdg[j] * (last_γ - new_γ)^2)
@@ -698,9 +698,8 @@ function cycle(
         end
 
         # Update genetic effect
-        last_β = β[j]
         v = compute_grad(G, w, r, j) + last_β * Swgg[j]
-        new_β = γ[j] != 0 ? v / (Swgg[j] + λj / norm((γ[j], β[j]))) : softtreshold(v, λj) / Swgg[j]
+        new_β = γ[j] != 0 ? v / (Swgg[j] + λj / norm((last_γ, last_β))) : softtreshold(v, λj) / Swgg[j]
         r = update_r(G, r, last_β - new_β, j)
 
         maxΔ = max(maxΔ, Swgg[j] * (last_β - new_β)^2)
@@ -826,63 +825,52 @@ function cycle(
     end
 
     # GEI and genetic effects
-    for j in 1:length(γ)
-        v = compute_grad(D, G, w, r, j)
+    for j in 1:length(β)
         λj = λ * p_fG[j]
-
-        if j in γ.nzind || abs(v) > λj
-            # Update GEI effect
-            if j in γ.nzind 
-                last_γ = γ[j]
-                v += last_γ * Swdg[j]
-            else
-                kkt_check = false
-                last_γ, γ[j] = 0, 1
-                Swdg[j] = compute_Swxx(D, G, w, j)
-            end
-
-            new_γ = softtreshold(v, λj) / (Swdg[j] + λj / norm((last_γ, β[j])))
-            r = update_r(D, G, r, last_γ - new_γ, j)
-
-            # Update genetic effect
-            v = compute_grad(G, w, r, j)
-
-            if j in β.nzind 
-                last_β = β[j]
-                v += last_β * Swgg[j]
-            else
-                kkt_check = false
-                last_β, β[j] = 0, 1
-                Swgg[j] = compute_Swxx(G, w, j)
-            end
-
-            new_β = new_γ != 0 ? v / (Swgg[j] + λj / norm((last_γ, last_β))) : softtreshold(v, λj) / Swgg[j]
-            r = update_r(G, r, last_β - new_β, j)
-
-            maxΔ = max(maxΔ, Swgg[j] * (last_β - new_β)^2, Swdg[j] * (last_γ - new_γ)^2)
-            β[j], γ[j] = new_β, new_γ
-
-            continue
-        end
-
-        # Genetic effects only
-        v = compute_grad(G, w, r, j)
+        v1 = compute_grad(G, w, r, j)
+        v2 = compute_grad(D, G, w, r, j)
 
         if j in β.nzind
             last_β = β[j]
-            v += last_β * Swgg[j]
+            v1 += last_β * Swgg[j]
         else
             # Adding a new variable to the model
-            abs(v) <= λj && continue
+            norm([v1, softtreshold(v2, λj)]) <= λj && continue
             kkt_check = false
-            last_β = 0
+            last_β, β[j] = 0, 1
             Swgg[j] = compute_Swxx(G, w, j)
         end
-        new_β = softtreshold(v, λj) / Swgg[j]
+
+        if j in γ.nzind
+            last_γ = γ[j]
+            v2 += last_γ * Swdg[j]
+        else
+            # Adding a new variable to the model
+            if v2 != zero(v2)
+                kkt_check = false
+                last_γ, γ[j] = 0, 1
+                Swdg[j] = compute_Swxx(D, G, w, j)
+            else
+                # Update β only
+                new_β = softtreshold(v1, λj) / Swgg[j]
+                r = update_r(G, r, last_β - new_β, j)
+
+                maxΔ = max(maxΔ, Swgg[j] * (last_β - new_β)^2)
+                β[j] = new_β
+                continue
+            end
+        end
+
+        # Update β and γ
+        new_γ = softtreshold(v2, λj) / (Swdg[j] + λj / norm((last_γ, last_β)))
+        r = update_r(D, G, r, last_γ - new_γ, j)
+
+        v = compute_grad(G, w, r, j) + last_β * Swgg[j]
+        new_β = new_γ != 0 ? v / (Swgg[j] + λj / norm((last_γ, last_β))) : softtreshold(v, λj) / Swgg[j]
         r = update_r(G, r, last_β - new_β, j)
 
-        maxΔ = max(maxΔ, Swgg[j] * (last_β - new_β)^2)
-        β[j] = new_β
+        maxΔ = max(maxΔ, Swgg[j] * (last_β - new_β)^2, Swdg[j] * (last_γ - new_γ)^2)
+        β[j], γ[j] = new_β, new_γ
 
     end
 
@@ -1504,15 +1492,13 @@ function compute_strongrule(dλ::T, λ::T, p_fX::Vector{T}, p_fG::Vector{T}, D::
         α[j] = 1; α[j] = 0
     end
     
-    for j in 1:length(γ)
-        j in γ.nzind && continue
+    for j in 1:length(β)
+        j in β.nzind && continue
         c1 = compute_prod(G, y, μ, j)
         c2 = softtreshold(compute_prod(D, G, y, μ, j), λ * p_fG[j])
         norm([c1, c2]) <= dλ * p_fG[j] && continue
         
         # Force a new group to the model
-        γ[j] = 1; γ[j] = 0
-        j in β.nzind && continue
         β[j] = 1; β[j] = 0
     end
 end
