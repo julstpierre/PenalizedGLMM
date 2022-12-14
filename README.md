@@ -14,7 +14,7 @@ Pkg.add(url = "https://github.com/julstpierre/PenalizedGLMM.jl")
 
 
 ```julia
-using PenalizedGLMM
+using PenalizedGLMM, CSV, DataFrames, GLM, Latexify, ROCAnalysis
 ```
 
 ## Example data sets
@@ -35,7 +35,6 @@ We read the example covariate file and find the corresponding rows for subjects 
 
 
 ```julia
-using CSV, DataFrames
 covdf = CSV.read(covfile, DataFrame)
 trainrowinds = findall(covdf.train)
 testrowinds = setdiff(1:nrow(covdf), trainrowinds);
@@ -45,7 +44,6 @@ We fit the null logistic mixed model on the training set, with AGE, SEX as fixed
 
 
 ```julia
-using GLM
 nullmodel = pglmm_null(@formula(y ~ AGE + SEX) 
                       ,covfile
                       ,grmfile 
@@ -177,7 +175,6 @@ We can calculate a PRS for each individual in the test set using the predict fun
 
 
 ```julia
-using Latexify
 yhat = PenalizedGLMM.predict(modelfit
                             ,covfile
                             ,grmfile
@@ -218,7 +215,6 @@ We can determine which model provides the best prediction accuracy by comparing 
 
 
 ```julia
-using ROCAnalysis
 ctrls = (covdf[testrowinds,:y] .== 0)
 cases = (covdf[testrowinds,:y] .== 1)
 
