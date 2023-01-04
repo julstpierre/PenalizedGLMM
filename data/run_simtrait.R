@@ -3,7 +3,7 @@
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
 args <- commandArgs(TRUE)
-# args = c("0.5", "0.4", "0", "0.1", "5000", "0.01", "10", "NONE", "1d", "")
+# args = c("0.5", "0.4", "0", "0.1", "5000", "0.01", "20", "NONE", "1d", "")
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g <- as.numeric(args[1])
@@ -55,17 +55,50 @@ admixed <- gen_structured_model(n = n,
                                 train_tune_test = c(0.8, 0.1, 0.1)
 )
 
-#-----------------------
-# PCA plot
-#----------------------
+# #-----------------------
+# # PCA plot
+# #----------------------
 # library(ggplot2)
-# ggplot(data.frame(admixed$PC, pop = as.character(admixed$subpops)), aes(PC1, PC2, col = pop)) +
-#   geom_point(size = 3, show.legend = FALSE) +
-#   xlab("PC1") + ylab("PC2")
+# ggplot(data.frame(admixed$PC, pop = as.character(admixed$subpops)),
+#        aes(PC1, PC2, col = pop)) +
+#    geom_point(show.legend = FALSE) +
+#    xlab("PC1") + ylab("PC2") +
+#   theme_bw()+
+#   theme(plot.background = element_blank(),
+#         panel.grid.major = element_blank(),
+#         panel.grid.minor = element_blank())+
+#   #theme(panel.border= element_blank())+
+#   theme(axis.line.x = element_line(color="black", size = 0.5),
+#         axis.line.y = element_line(color="black", size = 0.5),
+#         plot.title = element_text(hjust = 0.5)) +
+#   theme(legend.title=element_blank())
 # 
-# ggplot(data.frame(admixed$PC, pop = as.character(admixed$subpops)), aes(PC1, PC10, col = pop)) +
-#   geom_point(size = 3, show.legend = FALSE) +
-#   xlab("PC1") + ylab("PC10")
+# #-----------------------
+# #Create a heatmap
+# #-----------------------
+# library(dplyr)
+# library(tidyr)
+# des <- model.matrix(~-1+factor((admixed$subpops)))
+# colnames(des) <- 1:20
+# df <- add_rownames(data.frame(cor(des, admixed$PC)), var = "Pop") %>%
+#         pivot_longer(!Pop, names_to = "PC") %>%
+#         mutate(PC = factor(PC, levels=paste0("PC", 20:1))) %>%
+#         mutate(Pop = factor(Pop, levels=c(1:7, 11, 8:10, 12:20))) %>%
+#         mutate(value_ = ifelse(abs(value) > 0.2, signif(value, 3), NA))
+# 
+# ggplot(data = df, aes(x=Pop, y=PC, fill=abs(value), label = value_)) +
+#   geom_tile() +
+#   geom_text(color = "black", size = 3) +
+#   scale_fill_distiller(palette = "RdPu") +
+#   labs(x="Population", y = "", fill = expression("|"~r^2~"|")) +
+#   theme_bw()+
+#   theme(plot.background = element_blank(),
+#         panel.grid.major = element_blank(),
+#         panel.grid.minor = element_blank())+
+#   theme(panel.border= element_blank())+
+#   theme(axis.line.x = element_blank(),
+#         axis.line.y = element_blank(),
+#         plot.title = element_text(hjust = 0.5))
 
 #-----------------------------------------
 # Write kinship to txt.gz compressed file
