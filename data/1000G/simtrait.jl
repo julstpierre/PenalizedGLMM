@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.5", "0", "0.4", "0", "0.2", "5000", "0.01", "0.1", "5", "ALL", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.2", "5000", "0.01", "0.1", "5", "ALL", ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -22,7 +22,7 @@ h2_b = parse(Float64, ARGS_[3])
 h2_d = parse(Float64, ARGS_[4])
 
 # Prevalence
-pi0 = parse(Float64, ARGS_[5])	
+pi0 = parse(Float64, ARGS_[5])  
 
 # Number of snps to randomly select accros genome
 p = parse(Int, ARGS_[6])
@@ -50,7 +50,7 @@ end
 # Combine into a DataFrame
 dat = @chain CSV.read("1000G/covars.csv", DataFrame) begin
     @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE = round.(rand(Normal(50, 5), length(:ind)), digits = 0))
-	rightjoin(samples, on = [:IID, :FID])
+    rightjoin(samples, on = [:IID, :FID])
     @select!(:FID, :IID, :POP, :SEX, :AGE)
 end
 
@@ -93,6 +93,30 @@ snps = findall((_maf.ALL .!= 0) .& (_maf.ALL .!= 0.5) .& (_maf.ALLtrain .!= 0) .
 # Sample p candidate SNPs randomly accross genome, convert to additive model and impute
 snp_inds = sample(snps, p, replace = false, ordered = true)
 G = convert(Matrix{Float64}, @view(_1000G[inds, snp_inds]), impute = true, center = true, scale = true)
+
+# Function to return standard deviation and mean of each SNP
+function standardizeG(s::AbstractSnpArray, model, scale::Bool, T = AbstractFloat)
+    n, m = size(s)
+    μ, σ = Array{T}(undef, m), Array{T}(undef, m)   
+    @inbounds for j in 1:m
+        μj, mj = zero(T), 0
+        for i in 1:n
+            vij = SnpArrays.convert(T, s[i, j], model)
+            μj += isnan(vij) ? zero(T) : vij
+            mj += isnan(vij) ? 0 : 1
+        end
+        μj /= mj
+        μ[j] = μj
+        σ[j] = model == ADDITIVE_MODEL ? sqrt(μj * (1 - μj / 2)) : sqrt(μj * (1 - μj))
+    end
+    
+    # Return centre and scale parameters
+    if scale 
+       return μ, σ
+    else 
+       return μ, []
+    end
+end
 muG, sG = standardizeG(@view(_1000G[inds, snp_inds]), ADDITIVE_MODEL, true)
 
 # Save filtered plink file
@@ -177,14 +201,18 @@ W[s_] .= sigma2_GEI/length(s_)
 gamma = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate random effects
-b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
-b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(size(dat, 1))
+# b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
+# b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(size(dat, 1))
+
+# Simulate environmental confounding effect
+Z = [dat.POP[i] .== unique(dat.POP) for i in 1:size(dat, 1)] |> x-> reduce(hcat, x)'
+b = (Z ./ std(Z, dims = 1)) * rand(Normal(0, sqrt(sigma2_d / K)), K)
 
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
 expit(x) = exp(x) / (1 + exp(x))
 final_dat = @chain dat begin
-	@transform!(:logit_pi = logit(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE .- mean(:AGE))/ 10 + G * beta + (G .* :SEX) * gamma + b)
+    @transform!(:logit_pi = logit(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE .- mean(:AGE))/ 10 + G * beta + (G .* :SEX) * gamma + b)
     @transform!(:pi = expit.(:logit_pi))
     @transform(:y = rand.([Binomial(1, :pi[i]) for i in 1:nrow(dat)]))
     select!(Not([:pi, :logit_pi]))
@@ -215,27 +243,3 @@ df.mafrange = _maf.range[snp_inds]
 
 # CSV file containing MAFs and simulated effect for each SNP
 CSV.write(ARGS_[11] * "betas.txt", df)
-
-# Function to return standard deviation and mean of each SNP
-function standardizeG(s::AbstractSnpArray, model, scale::Bool, T = AbstractFloat)
-    n, m = size(s)
-    μ, σ = Array{T}(undef, m), Array{T}(undef, m)   
-    @inbounds for j in 1:m
-        μj, mj = zero(T), 0
-        for i in 1:n
-            vij = SnpArrays.convert(T, s[i, j], model)
-            μj += isnan(vij) ? zero(T) : vij
-            mj += isnan(vij) ? 0 : 1
-        end
-        μj /= mj
-        μ[j] = μj
-        σ[j] = model == ADDITIVE_MODEL ? sqrt(μj * (1 - μj / 2)) : sqrt(μj * (1 - μj))
-    end
-    
-    # Return centre and scale parameters
-    if scale 
-       return μ, σ
-    else 
-       return μ, []
-    end
-end
