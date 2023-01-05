@@ -72,11 +72,26 @@ function pglmm_null(
         dg = function(μ::Array{Float64}) 1 end
     end
 
-     # Define the weights for link function g, variance function v(μ) at the mean value μ
-    if family == Binomial() && link == LogitLink()
-        W = function(μ::Array{Float64}, φ::Float64) Diagonal(μ .* (1 .- μ)) end
-    elseif family == Normal() && link == IdentityLink()
-        W = function(μ::Array{Float64}, φ::Float64) 1/φ * Diagonal(ones(n)) end
+    # Function to update linear predictor and mean at each iteration
+    const PMIN = 1e-5
+    const PMAX = 1-1e-5
+    function updateμ(::Binomial, η::Vector{T}, link::GLM.Link) where T
+        μ = GLM.linkinv.(link, η)
+        μ = [μ[i] < PMIN ? PMIN : μ[i] > PMAX ? PMAX : μ[i] for i in 1:length(μ)]
+        return(μ)
+    end
+
+    function updateμ(::Normal, η::Vector{T}, link::GLM.Link) where T
+        μ = GLM.linkinv.(link, η)
+        return(μ)
+    end
+
+    function compute_weights(::Binomial, μ::Vector{T}, kwargs...) where T
+        Diagonal(μ .* (1 .- μ))
+    end
+
+    function compute_weights(::Normal, μ::Vector{T}, φ::Float64) where T
+        1/φ * Diagonal(ones(length(μ)))
     end
 
     #--------------------------------------------------------------
@@ -93,8 +108,8 @@ function pglmm_null(
 
     # Obtain initial values for Ytilde
     y = GLM.response(nullformula, covdf)
-    μ = GLM.predict(nullfit)
-    η = GLM.linkfun.(link, μ)
+    η = GLM.linkfun.(link, GLM.predict(nullfit))
+    μ = updateμ(family, η, link)
     Ytilde = η + dg(μ) .* (y - μ)
 
     # Create list of similarity matrices
@@ -125,6 +140,7 @@ function pglmm_null(
     # Obtain initial values for variance components
     K = length(V)
     theta0 = fill(var(Ytilde) / K, K)
+    W = compute_weights(family, μ, first(theta0))
 
     # Initialize number of steps
     nsteps = 1
@@ -132,7 +148,7 @@ function pglmm_null(
     # Iterate until convergence
     while true
         # Update variance components estimates
-        fit0 = glmmfit_ai(family, theta0, V, X, Ytilde, W(μ, first(theta0)), K)
+        fit0 = glmmfit_ai(family, theta0, V, X, Ytilde, W, K)
         if nsteps == 1
             theta = theta0 + n^-1 * theta0.^2 .* fit0.S
         else
@@ -140,9 +156,10 @@ function pglmm_null(
         end
 
         # Update working response
-        fit = glmmfit_ai(family, theta, V, X, Ytilde, W(μ, first(theta)), K, fit_only = true)
+        fit = glmmfit_ai(family, theta, V, X, Ytilde, W, K, fit_only = true)
         α, η = fit.α, fit.η
-        μ = GLM.linkinv.(link, η)
+        μ = updateμ(family, η, link)
+        W = compute_weights(family, μ, first(theta))
         Ytilde = η + dg(μ) .* (y - μ)
 
         # Check termination conditions
