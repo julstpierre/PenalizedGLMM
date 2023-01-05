@@ -73,8 +73,8 @@ function pglmm_null(
     end
 
     # Function to update linear predictor and mean at each iteration
-    const PMIN = 1e-5
-    const PMAX = 1-1e-5
+    PMIN = 1e-5
+    PMAX = 1-1e-5
     function updateμ(::Binomial, η::Vector{T}, link::GLM.Link) where T
         μ = GLM.linkinv.(link, η)
         μ = [μ[i] < PMIN ? PMIN : μ[i] > PMAX ? PMAX : μ[i] for i in 1:length(μ)]
