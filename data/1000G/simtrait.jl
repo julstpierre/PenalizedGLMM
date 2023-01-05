@@ -206,7 +206,7 @@ gamma = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate environmental confounding effect
 Z = [dat.POP[i] .== unique(dat.POP) for i in 1:size(dat, 1)] |> x-> reduce(hcat, x)'
-b = (Z ./ std(Z, dims = 1)) * rand(Normal(0, sqrt(sigma2_d / K)), K)
+b = (Z ./ std(Z, dims = 1)) * rand(Normal(0, sqrt(sigma2_d)), K)
 
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
