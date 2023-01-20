@@ -201,12 +201,12 @@ W[s_] .= sigma2_GEI/length(s_)
 gamma = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate random effects
-# b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
-# b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(size(dat, 1))
+b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
+b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(size(dat, 1))
 
 # Simulate environmental confounding effect
-Z = [dat.POP[i] .== unique(dat.POP) for i in 1:size(dat, 1)] |> x-> reduce(hcat, x)'
-b = (Z ./ std(Z, dims = 1)) * rand(Normal(0, sqrt(sigma2_d)), K)
+# Z = [dat.POP[i] .== unique(dat.POP) for i in 1:size(dat, 1)] |> x-> reduce(hcat, x)'
+# b = (Z ./ std(Z, dims = 1)) * rand(Normal(0, sqrt(sigma2_d)), K)
 
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
