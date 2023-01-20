@@ -171,7 +171,7 @@ The estimated values for the intercept and non-genetic covariates are stored in 
 
 ## 3. Polygenic Risk Score (PRS)
 
-We can calculate a PRS for each individual in the test set using the predict function. By default, predictions are obtained on the full lasso path, but it is also possible to provide a vector containing indices for the values of the regulatization parameter λ. For example, we can predict a PRS for each individual in the test set using the estimated coefficients from the models obtained by using AIC and BIC respectively:
+We can calculate a PRS for each individual in the test set using the predict function. By default, predictions are obtained on the full lasso path, but it is also possible to provide a vector containing indices for the values of the regularization parameter λ. For example, we can predict a PRS for each individual in the test set using the estimated coefficients from the models obtained by using AIC and BIC respectively:
 
 
 ```julia
