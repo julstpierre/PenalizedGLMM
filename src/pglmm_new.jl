@@ -156,10 +156,14 @@ function pglmm(
     end
 
     # Return lasso path
-    if length(rho) == 1
-        pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, nullmodel.τ, intercept, nothing)
+    if !isnothing(ind_D)
+        if length(rho) == 1
+            pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, nullmodel.τ, intercept, rho[1])
+        else
+            [pglmmPath(nullmodel.family, a0[j], alphas[j], betas[j], gammas[j], nulldev, path[j].pct_dev, path[j].λ, 0, path[j].fitted_values, y, UD_invUt, nullmodel.τ, intercept, rho[j]) for j in 1:x]
+        end
     else
-        [pglmmPath(nullmodel.family, a0[j], alphas[j], betas[j], gammas[j], nulldev, path[j].pct_dev, path[j].λ, 0, path[j].fitted_values, y, UD_invUt, nullmodel.τ, intercept, rho[j]) for j in 1:x]
+        pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, nullmodel.τ, intercept, nothing)
     end
 end
 
@@ -1006,8 +1010,14 @@ function show(io::IO, g::pglmmPath)
     else
         df = [length(findall(x -> x != 0, vec(view([g.alphas; g.betas; g.gammas], :,k)))) for k in 1:size(g.betas, 2)]
         println(io, "$(modeltype(g.family)) Solution Path ($(size(g.betas, 2)) solutions for $(size([g.alphas; g.betas; g.gammas], 1)) predictors):") #in $(g.npasses) passes):"
-    end    
-    print(io, CoefTable(Union{Vector{Int},Vector{Float64}}[df, g.pct_dev, g.lambda, g.rho * ones(length(g.lambda))], ["df", "pct_dev", "λ", "ρ"], []))
+    end
+
+    if !isnothing(g.rho) 
+        print(io, CoefTable(Union{Vector{Int},Vector{Float64}}[df, g.pct_dev, g.lambda, g.rho * ones(length(g.lambda))], ["df", "pct_dev", "λ", "ρ"], []))
+    else 
+        print(io, CoefTable(Union{Vector{Int},Vector{Float64}}[df, g.pct_dev, g.lambda], ["df", "pct_dev", "λ"], []))
+    end
+
 end
 
 # Function to compute sequence of values for λ
@@ -1340,6 +1350,7 @@ end
 # Standardize predictors for lasso
 function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool = false) where T
     mu = intercept ? vec([0 mean(X[:,2:end], dims = 1)]) : vec(mean(X, dims = 1))
+    Xs = zero(X)
     if standardize
         s = intercept ? vec([1 std(X[:,2:end], dims = 1, corrected = false)]) : vec(std(X, dims = 1, corrected = false)) 
         if any(s .== zero(T))
@@ -1347,11 +1358,11 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool =
             s[s .== 0] .= 1 
         end
         for j in 1:size(X,2), i in 1:size(X, 1) 
-            @inbounds X[i,j] = (X[i,j] .- mu[j]) / s[j]
+            @inbounds Xs[i,j] = (X[i,j] .- mu[j]) / s[j]
         end
     else
         for j in 1:size(X,2), i in 1:size(X, 1) 
-            @inbounds X[i,j] = X[i,j] .- mu[j]
+            @inbounds Xs[i,j] = X[i,j] .- mu[j]
         end
         s = []
     end
@@ -1361,7 +1372,7 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, intercept::Bool =
          popfirst!(mu); popfirst!(s)
     end
 
-    X, mu, s
+    Xs, mu, s
 end
 
 # Calculate mean and scale for genotype data
