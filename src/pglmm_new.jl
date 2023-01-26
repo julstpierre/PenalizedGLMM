@@ -1131,6 +1131,7 @@ function predict(path,
                   s::Union{T, Vector{T}, Nothing} = nothing,
                   fixed_effects_only::Bool = false,
                   GEIvar::Union{Nothing,AbstractString} = nothing,
+                  GEIkin::Bool = true,
                   outtype = :response
                  ) where T
 
@@ -1151,6 +1152,7 @@ function predict(path,
                   s = 1:size(path[j].betas, 2),
                   fixed_effects_only = fixed_effects_only,
                   GEIvar = GEIvar,
+                  GEIkin = GEIkin,
                   outtype = outtype
                  ) for j in 1:length(path)] |> x-> reduce(hcat,x)
     else
@@ -1170,6 +1172,7 @@ function predict(path,
                   s = s[j].lambda.index,
                   fixed_effects_only = fixed_effects_only,
                   GEIvar = GEIvar,
+                  GEIkin = GEIkin,
                   outtype = outtype
                  ) for j in 1:length(s)] |> x-> reduce(hcat,x)
     end
@@ -1192,6 +1195,7 @@ function predict(path::pglmmPath,
                   s::Union{Nothing,<:Integer,AbstractVector{<:Integer}} = nothing,
                   fixed_effects_only::Bool = false,
                   GEIvar::Union{Nothing,AbstractString} = nothing,
+                  GEIkin::Bool = true,
                   outtype = :response
                  )
     
@@ -1262,8 +1266,28 @@ function predict(path::pglmmPath,
     #--------------------------------------------------------------
     # Compute predictions
     #--------------------------------------------------------------
+    # Create list of similarity matrices
+    V = push!(Any[], GRM)
+
+    # Add GEI similarity matrix
+    if !isnothing(GEIvar)
+        D = covdf[:, GEIvar]
+        if GEIkin
+            @assert length(path.τ) >= 2 "Only one variance component has been estimated under the null model."
+            V_D = D * D'
+            for j in findall(x -> x == 0, D), i in findall(x -> x == 0, D)  
+                    V_D[i, j] = 1 
+            end
+            push!(V, sparse(GRM .* V_D))
+        end
+    end
+
+    # Add variance components in the model
+    if !isnothing(M) 
+        [push!(V, M[i]) for i in 1:length(M)] 
+    end
+
     # Covariance matrix between test and training subjects
-    V = isnothing(M) ? push!(Any[], GRM) : reverse(push!(M, GRM))
     Σ_12 = sum(path.τ .* V)
 
     # Number of predictions to compute. User can provide index s for which to provide predictions, 
@@ -1274,7 +1298,6 @@ function predict(path::pglmmPath,
     η = path.a0[s]' .+ X * path.alphas[:,s] .+ G * path.betas[:,s]
 
     if !isnothing(GEIvar)
-        D = covdf[:, GEIvar]
         η += (D .* G) * path.gammas[:,s]
     end
 
