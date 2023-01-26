@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.2", "5000", "0.01", "0.1", "5", "ALL", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.2", "5000", "0.01", "0.1", "5", "true", "ALL" , ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -35,6 +35,9 @@ c_ = parse(Float64, ARGS_[8])
 
 # Number of populations
 K = parse(Int, ARGS_[9])
+
+# Hierarchical GEI effects
+hier = parse(Bool, ARGS_[10])
 
 # Number of snps to use for GRM estimation
 p_kin = 50000
@@ -121,14 +124,14 @@ muG, sG = standardizeG(@view(_1000G[inds, snp_inds]), ADDITIVE_MODEL, true)
 
 # Save filtered plink file
 rowmask, colmask = inds, [col in snp_inds for col in 1:size(_1000G, 2)]
-SnpArrays.filter("1000G/1000G", rowmask, colmask, des = ARGS_[11] * "geno")
+SnpArrays.filter("1000G/1000G", rowmask, colmask, des = ARGS_[12] * "geno")
 
-if ARGS_[10] == "ALL"
+if ARGS_[11] == "ALL"
     # Causal SNPs are included in the GRM
     grm_inds = sample(setdiff(snps, snp_inds), p_kin - p, replace = false, ordered = true) |>
                x -> [x; snp_inds] |>
                sort
-elseif ARGS_[10] == "NONE"
+elseif ARGS_[11] == "NONE"
     # Causal SNPs are excluded from the GRM
     grm_inds = sample(setdiff(snps, snp_inds), p_kin, replace = false, ordered = true)
 end
@@ -147,7 +150,7 @@ end
 GRM = posdef(GRM)
     
 # Save GRM in compressed file
-open(GzipCompressorStream, ARGS_[11] * "grm.txt.gz", "w") do stream
+open(GzipCompressorStream, ARGS_[12] * "grm.txt.gz", "w") do stream
     CSV.write(stream, DataFrame(GRM, :auto))
 end
 
@@ -196,17 +199,13 @@ beta = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate fixed GEI effects for randomly sampled causal snps
 W = zeros(p)
-s_ = sample(s, Integer(round(p*c*c_)), replace = false, ordered = true)
+s_ = hier ? sample(s, Integer(round(p*c*c_)), replace = false, ordered = true) : sample(1:p, Integer(round(p*c*c_)), replace = false, ordered = true)
 W[s_] .= sigma2_GEI/length(s_)
 gamma = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate random effects
 b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
 b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(size(dat, 1))
-
-# Simulate environmental confounding effect
-# Z = [dat.POP[i] .== unique(dat.POP) for i in 1:size(dat, 1)] |> x-> reduce(hcat, x)'
-# b = (Z ./ std(Z, dims = 1)) * rand(Normal(0, sqrt(sigma2_d)), K)
 
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
@@ -226,7 +225,7 @@ println(combine(groupby(final_dat, :POP), :y => mean))
 # Write csv files
 #---------------------
 # CSV file containing covariates
-CSV.write(ARGS_[11] * "covariate.txt", final_dat)
+CSV.write(ARGS_[12] * "covariate.txt", final_dat)
 
 # Convert simulated effect for each SNP on original genotype scale
 df = SnpData("1000G/1000G").snp_info[snp_inds, [1,4]]
@@ -242,4 +241,4 @@ df.mafAFR = _maf.AFR[snp_inds]
 df.mafrange = _maf.range[snp_inds]
 
 # CSV file containing MAFs and simulated effect for each SNP
-CSV.write(ARGS_[11] * "betas.txt", df)
+CSV.write(ARGS_[12] * "betas.txt", df)
