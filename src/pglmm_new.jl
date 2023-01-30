@@ -121,10 +121,13 @@ function pglmm(
     rho = !isnothing(ind_D) ? rho : 0
     @assert all(0 .<= rho .< 1) "rho parameter must be in the range (0, 1]."
     x = length(rho)
-    λ_seq = [lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
-        
+
     # Fit penalized model for each value of rho
-    path = [pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], K, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method) for j in 1:x]
+    λ_seq, path = Vector{typeof(μ)}(undef, x), Array{NamedTuple}(undef, x)
+    Threads.@threads for j in 1:x
+           λ_seq[j] = lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j])
+           path[j] = pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], K, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method)
+    end
 
     # Separate intercept from coefficients
     a0, alphas = intercept ? ([path[j].alphas[1,:] for j in 1:x], [path[j].alphas[2:end,:] for j in 1:x]) : ([nothing for j in 1:x], [path[j].alphas for j in 1:x])
@@ -1123,6 +1126,7 @@ function predict(path,
                   snpmodel = ADDITIVE_MODEL,
                   snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  covrowtraininds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   covars::Union{Nothing,AbstractVector{<:String}} = nothing, 
                   geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
@@ -1144,6 +1148,7 @@ function predict(path,
                   snpmodel = snpmodel,
                   snpinds = snpinds,
                   covrowinds = covrowinds,
+                  covrowtraininds = covrowtraininds,
                   covars = covars, 
                   geneticrowinds = geneticrowinds,
                   grmrowinds = grmrowinds,
@@ -1164,6 +1169,7 @@ function predict(path,
                   snpmodel = snpmodel,
                   snpinds = snpinds,
                   covrowinds = covrowinds,
+                  covrowtraininds = covrowtraininds,
                   covars = covars, 
                   geneticrowinds = geneticrowinds,
                   grmrowinds = grmrowinds,
@@ -1187,6 +1193,7 @@ function predict(path::pglmmPath,
                   snpmodel = ADDITIVE_MODEL,
                   snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  covrowtraininds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   covars::Union{Nothing,AbstractVector{<:String}} = nothing, 
                   geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
@@ -1272,10 +1279,11 @@ function predict(path::pglmmPath,
     # Add GEI similarity matrix
     if !isnothing(GEIvar)
         D = covdf[:, GEIvar]
+        Dtrain = CSV.read(covfile, DataFrame)[covrowtraininds, GEIvar]
         if GEIkin
             @assert length(path.τ) >= 2 "Only one variance component has been estimated under the null model."
-            V_D = D * D'
-            for j in findall(x -> x == 0, D), i in findall(x -> x == 0, D)  
+            V_D = D * Dtrain'
+            for j in findall(x -> x == 0, Dtrain), i in findall(x -> x == 0, D)  
                     V_D[i, j] = 1 
             end
             push!(V, sparse(GRM .* V_D))
