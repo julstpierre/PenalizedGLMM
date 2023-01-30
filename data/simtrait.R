@@ -72,8 +72,9 @@
 #' names(admixed)
 
 gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10,
-                                 h2_g, h2_b, geography = c("ind", "1d", "circ"),
-                                 percent_causal, percent_overlap, train_tune_test = c(0.8, 0.1, 0.1)) {
+                                 h2_g, h2_b, h2_GEI, h2_d, geography = c("ind", "1d", "circ"),
+                                 percent_causal, percent_causal_GEI, percent_overlap, hier,
+                                 train_tune_test = c(0.8, 0.1, 0.1)) {
   
   if(sum(train_tune_test) != 1) stop("Training/tune/test split must be equal to 1")
   
@@ -337,12 +338,25 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
 
   # Variance components
   sigma2_e = pi^2 / 3 + log(1.3)^2 * var(SEX) + log(1.05)^2 * var(AGE / 10)
-  sigma2_g = h2_g / (1 - h2_g - h2_b) * sigma2_e
-  sigma2_b = h2_b / (1 - h2_g - h2_b) * sigma2_e
+  sigma2_g = h2_g / (1 - h2_g - h2_b - h2_GEI - h2_d) * sigma2_e
+  sigma2_GEI = h2_GEI / (1 - h2_g - h2_b - h2_GEI - h2_d) * sigma2_e
+  sigma2_b = h2_b / (1 - h2_g - h2_b - h2_GEI - h2_d) * sigma2_e
+  sigma2_d = h2_d / (1 - h2_g - h2_b - h2_GEI - h2_d) * sigma2_e
 
   beta <- rep(0, length = p)
   if (percent_causal != 0) {
     beta[which(colnames(Xdesign) %in% causal)] <- stats::rnorm(n = length(causal), sd = sqrt(sigma2_g/length(causal)))
+  }
+  
+  gamma <- rep(0, length = p)
+  causal_GEI <- ""
+  if (percent_causal_GEI != 0) {
+      if (hier){
+          causal_GEI <- sample(causal, percent_causal_GEI * length(causal))
+      } else{
+          causal_GEI <- sample(colnames(Xdesign), percent_causal_GEI * length(causal))
+      }
+      gamma[which(colnames(Xdesign) %in% causal_GEI)] <- stats::rnorm(n = length(causal_GEI), sd = sqrt(sigma2_GEI/length(causal_GEI)))
   }
   
   kin <- 2 * PhiHat
@@ -354,7 +368,15 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
     tt <- kin
   }
   
-  P <- MASS::mvrnorm(1, mu = rep(0, n), Sigma = sigma2_b * tt)
+  # GEI similarity matrix
+  ttd <- cbind(SEX) %*% t(SEX)
+  for (j in which(SEX == 0)){
+    for (i in which(SEX == 0)){
+      ttd[i, j] = 1 
+    }
+  }  
+  
+  P <- MASS::mvrnorm(1, mu = rep(0, n), Sigma = (sigma2_b + sigma2_d * ttd) * tt)
 
   # Standardize Xdesign
   mu <- apply(Xdesign, 2, mean)
@@ -364,7 +386,7 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
   # Simulate binary traits
   logit <- function(x) log(x / (1 - x))
   expit <- function(x) exp(x) / (1 + exp(x))
-  logit_pi <- logit(b0) - log(1.3) * SEX + log(1.05) * AGE / 10 + as.numeric(Xdesign_ %*% beta) + P
+  logit_pi <- logit(b0) - log(1.3) * SEX + log(1.05) * AGE / 10 + as.numeric(Xdesign_ %*% beta) + as.numeric((SEX * Xdesign_) %*% gamma) + P
   y <- rbinom(n = length(logit_pi), size = 1, prob = expit(logit_pi))
   
   # partition the data into train/tune/test
@@ -420,7 +442,10 @@ gen_structured_model <- function(n, p_design, p_kinship, k, s, Fst, b0, nPC = 10
               std = std,
               
               causal = causal,
+              causal_GEI = causal_GEI,
+              
               beta = beta,
+              gamma = gamma,
               
               not_causal = not_causal,
               

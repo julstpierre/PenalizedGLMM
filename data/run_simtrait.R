@@ -3,34 +3,43 @@
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
 args <- commandArgs(TRUE)
-# args = c("0.5", "0.4", "0", "0.1", "5000", "0.01", "20", "NONE", "1d", "")
+# args = c("0.2", "0.1", "0.4", "0.2", "0.1", "10000", "0.01", "0.1", "20", "true", "NONE", "1d", "")
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g <- as.numeric(args[1])
 
+# Fraction of variance due to fixed GEI effect (logit scale)
+h2_GEI <- as.numeric(args[2])
+
 # Fraction of variance due to random polygenic additive effect (logit scale)
-h2_b <- as.numeric(args[2])
+h2_b <- as.numeric(args[3])
 
 # Fraction of variance due to unobserved shared environmental effect (logit scale)
-h2_d <- as.numeric(args[3])
+h2_d <- as.numeric(args[4])
 
 # Prevalence
-pi0 <- as.numeric(args[4])
+pi0 <- as.numeric(args[5])
 
 # Number of snps to randomly select accros genome
-p_design <- as.numeric(args[5])
+p_design <- as.numeric(args[6])
 
 # Percentage of causal SNPs
-percent_causal <- as.numeric(args[6])
+percent_causal <- as.numeric(args[7])
+
+# Fraction of GEI effects among causal SNPs
+percent_causal_GEI <- as.numeric(args[8])
 
 # Number of populations
-K <- as.numeric(args[7])
+K <- as.numeric(args[9])
+
+# Hierarchical GEI effects
+hier = ifelse(args[10] == "true", TRUE, FALSE)
 
 # Overlap between design and kinship SNPs
-percent_overlap <- ifelse(args[8] == "ALL", "100", ifelse(args[8] == "NONE", "0"))
+percent_overlap <- ifelse(args[11] == "ALL", "100", ifelse(args[11] == "NONE", "0"))
 
 # Geography
-geography <- args[9]
+geography <- args[12]
 
 # Number of SNPs to use for kinship estimation
 p_kinship <- 50000
@@ -48,11 +57,14 @@ admixed <- gen_structured_model(n = n,
                                 p_kinship = p_kinship,
                                 geography = geography,
                                 percent_causal = percent_causal,
+                                percent_causal_GEI = percent_causal_GEI,
                                 percent_overlap = percent_overlap,
                                 k = K, s = 0.5, Fst = NULL,
                                 b0 = pi0, nPC = 10,
                                 h2_g = h2_g, h2_b = h2_b,
-                                train_tune_test = c(0.8, 0.1, 0.1)
+                                h2_GEI = h2_GEI, h2_d = h2_d,
+                                hier = hier,
+                                train_tune_test = c(0.8, 0, 0.2)
 )
 
 # #-----------------------
@@ -72,7 +84,7 @@ admixed <- gen_structured_model(n = n,
 #         axis.line.y = element_line(color="black", size = 0.5),
 #         plot.title = element_text(hjust = 0.5)) +
 #   theme(legend.title=element_blank())
-# 
+
 # #-----------------------
 # #Create a heatmap
 # #-----------------------
@@ -103,7 +115,7 @@ admixed <- gen_structured_model(n = n,
 #-----------------------------------------
 # Write kinship to txt.gz compressed file
 #-----------------------------------------
-gz <- gzfile(paste0(args[10], "grm.txt.gz"), "w")
+gz <- gzfile(paste0(args[13], "grm.txt.gz"), "w")
 write.csv(admixed$kin, gz, row.names = FALSE)
 close(gz)
 
@@ -132,11 +144,15 @@ G[admixed$test_ind, ] <- admixed$xtest_lasso[ , 1:p_design]
 
 # CSV file containing covariates
 final_dat <- cbind(IID = paste0("ID", 1:n), X, set = sapply(1:n, function(i) ifelse(i %in% admixed$train_ind, "train", ifelse(i %in% admixed$tune_ind, "tune", "test"))), y)
-write.csv(final_dat, paste0(args[10], "covariate.txt"), quote = FALSE, row.names = FALSE)
+write.csv(final_dat, paste0(args[13], "covariate.txt"), quote = FALSE, row.names = FALSE)
 
 # CSV file containing genetic predictors
-write.csv(G, paste0(args[10], "snps.txt"), quote = FALSE, row.names = FALSE)
+write.csv(G, paste0(args[13], "snps.txt"), quote = FALSE, row.names = FALSE)
 
 # CSV file containing beta (on original genotype scale) for each SNP
 beta <- admixed$beta / admixed$std
-write.csv(cbind(beta = beta), paste0(args[10], "betas.txt"), quote = FALSE, row.names = FALSE)
+write.csv(cbind(beta = beta), paste0(args[13], "betas.txt"), quote = FALSE, row.names = FALSE)
+
+# CSV file containing beta (on original genotype scale) for each SNP
+gamma <- admixed$gamma / admixed$std
+write.csv(cbind(gamma = gamma), paste0(args[13], "gammas.txt"), quote = FALSE, row.names = FALSE)
