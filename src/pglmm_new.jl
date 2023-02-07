@@ -1279,9 +1279,9 @@ function predict(path::pglmmPath,
     # Add GEI similarity matrix
     if !isnothing(GEIvar)
         D = covdf[:, GEIvar]
-        Dtrain = CSV.read(covfile, DataFrame)[covrowtraininds, GEIvar]
         if GEIkin
             @assert length(path.τ) >= 2 "Only one variance component has been estimated under the null model."
+	    Dtrain = CSV.read(covfile, DataFrame)[covrowtraininds, GEIvar]
             V_D = D * Dtrain'
             for j in findall(x -> x == 0, Dtrain), i in findall(x -> x == 0, D)  
                     V_D[i, j] = 1 
