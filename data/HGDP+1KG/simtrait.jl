@@ -40,7 +40,7 @@ hier = parse(Bool, ARGS_[9])
 kin = ARGS_[10]
 
 # Number of snps to use for GRM estimation
-p_kin = 10000
+p_kin = 20000
 
 # Directory where source data is located
 datadir = ARGS_[11]
