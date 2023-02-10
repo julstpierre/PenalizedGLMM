@@ -121,13 +121,17 @@ function pglmm(
     rho = !isnothing(ind_D) ? rho : 0
     @assert all(0 .<= rho .< 1) "rho parameter must be in the range (0, 1]."
     x = length(rho)
+    λ_seq = [lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
+   
+    # Fit penalized model for each value of rho
+    # λ_seq, path = Vector{typeof(μ)}(undef, x), Array{NamedTuple}(undef, x)
+    # Threads.@threads for j in 1:x
+    #        λ_seq[j] = lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j])
+    #        path[j] = pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], K, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method)
+    # end
 
     # Fit penalized model for each value of rho
-    λ_seq, path = Vector{typeof(μ)}(undef, x), Array{NamedTuple}(undef, x)
-    Threads.@threads for j in 1:x
-           λ_seq[j] = lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j])
-           path[j] = pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], K, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method)
-    end
+    path = [pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], K, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method) for j in 1:x]
 
     # Separate intercept from coefficients
     a0, alphas = intercept ? ([path[j].alphas[1,:] for j in 1:x], [path[j].alphas[2:end,:] for j in 1:x]) : ([nothing for j in 1:x], [path[j].alphas for j in 1:x])
