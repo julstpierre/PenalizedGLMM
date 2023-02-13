@@ -57,7 +57,7 @@ end
 dat = @chain CSV.read(datadir * "HGDP+1KG/covars.csv", DataFrame) begin
     @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE = round.(rand(Normal(50, 5), length(:ind)), digits = 0))
     rightjoin(samples, on = [:IID, :FID])
-    @select!(:FID, :IID, :POP, :SEX, :AGE, :related, :related_exclude)
+    @select!(:FID, :IID, :POP, :SEX, :AGE, :related, :related_exclude, :PC1, :PC2, :PC2, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
 end
 
 # Randomly sample subjects by POP for training and test sets
