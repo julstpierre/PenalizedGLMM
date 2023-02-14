@@ -2,9 +2,8 @@ module PenalizedGLMM
 
 using GLM
 using LinearAlgebra, SparseArrays
-using CSV, CodecZlib, Distributions, DataFrames, StatsBase, Random
+using CSV, CodecZlib, Distributions, DataFrames, StatsBase, Random, ROCAnalysis
 using SnpArrays
-using ROCAnalysis
 
 import Base.show
 export pglmm_null
