@@ -18,7 +18,7 @@
 - `standardize_G::Bool = true (default)`: standardize genetic predictors. Coefficients are returned on original scale.
 - `criterion`: criterion for coordinate descent convergence. Can be equal to `:coef` (default) or `:obj`.
 - `earlystop::Bool = true (default)`: should full lasso path search stop earlier if deviance change is smaller than MIN_DEV_FRAC_DIFF or higher than MAX_DEV_FRAC ? 
-- `method = cd (default)`: which method to use to estimate random effects vector. Can be equal to `:cd` (default) for coordinate descent or `:conjgrad` for conjuguate gradient descent.  
+- `method`: which method to use to estimate random effects vector. Can be equal to `:cd` (default) for coordinate descent or `:conjgrad` for conjuguate gradient descent.  
 """
 function pglmm(
     # positional arguments
