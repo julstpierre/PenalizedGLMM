@@ -45,7 +45,7 @@ function pglmm_cv(
     maxiter::Integer = 500,
     irls_tol::T = 1e-7,
     irls_maxiter::Integer = 500,
-    K::Integer = 100,
+    nlambda::Integer = 100,
     rho::Union{Real, AbstractVector{<:Real}} = 0.5,
     verbose::Bool = false,
     standardize_X::Bool = true,
@@ -55,12 +55,25 @@ function pglmm_cv(
     method = :cd,
     nfolds::Integer = 5,
     foldid::Union{Nothing, AbstractVector{<:Integer}} = nothing,
-    type_measure = :auc,
+    type_measure = :deviance,
     kwargs...
     ) where T
+    
+    # Read covariate file
+    covdf = CSV.read(covfile, DataFrame)
 
-    # Split into nfolds
-    foldid = isnothing(foldid) ? shuffle!((1:size(nullmodel.X, 1)) .% nfolds) .+ 1 : foldid
+    # Check if covrowinds is missing
+    if isnothing(covrowinds) covrowinds = 1:nrow(covdf) end
+    covdf = covdf[covrowinds, :]
+
+    # Check if grminds is missing
+    if isnothing(grminds) grminds = 1:nrow(covdf) end
+
+    # Check if geneticrowinds is missing
+    if isnothing(geneticrowinds) geneticrowinds = 1:nrow(covdf) end
+
+    # Split observations into nfolds
+    foldid = isnothing(foldid) ? shuffle!((1:nrow(covdf)) .% nfolds) .+ 1 : foldid
 
     # Fit null model separately for each fold
     nullmodel = [pglmm_null(
@@ -88,7 +101,7 @@ function pglmm_cv(
         geneticrowinds = geneticrowinds[foldid .!= i],
         irls_tol = irls_tol,
         irls_maxiter = irls_maxiter,
-        K = K,
+        nlambda = nlambda,
         rho = rho,
         verbose = verbose,
         standardize_X = standardize_X,
@@ -119,12 +132,107 @@ function pglmm_cv(
         outtype = :prob
         ) for i in 1:nfolds]
 
-    # Compute AUC for each fold
-    covdf = !isnothing(covrowinds) ? CSV.read(covfile, DataFrame)[covrowinds, :] : CSV.read(covfile, DataFrame)
-    ctrls = [(covdf[foldid .== i, coefnames(apply_schema(nullformula, schema(nullformula, covdf)).lhs)] .== 0) for i in 1:nfolds]
-    cases = [(covdf[foldid .== i, coefnames(apply_schema(nullformula, schema(nullformula, covdf)).lhs)] .== 1) for i in 1:nfolds]
+    if type_measure == :deviance
+        # Read GRM for test subjects
+        GRM = [open(GzipDecompressorStream, grmfile, "r") do stream
+            Symmetric(Matrix(CSV.read(stream, DataFrame)))[grminds[foldid .== i], grminds[foldid .== i]]
+        end for i in 1:nfolds]
 
-    auc_means = [ROCAnalysis.auc(roc(yhat[i][ctrls[i], j], yhat[i][cases[i], j])) for i in 1:nfolds, j in 1:size(yhat[i], 2)] |> 
-                    x->mean(x, dims = 1) |>
-                    x->argmax(x)
+        # Create list of similarity matrices
+        V = [push!(Any[], GRM[i]) for i in 1:nfolds]
+
+        # Add GEI similarity matrix
+        if !isnothing(GEIvar)
+            D = [covdf[foldid .== i, GEIvar] for i in 1:nfolds]
+            if GEIkin
+                V_D = [D[i] * D[i]' for i in 1:nfolds]
+                for k in 1:nfolds, j in findall(x -> x == 0, D[k]), i in findall(x -> x == 0, D[k])  
+                        V_D[k][i, j] = 1 
+                end
+                [push!(V[i], sparse(GRM[i] .* V_D[i])) for i in 1:nfolds]
+            end
+        end
+
+        # Covariance matrix
+        τV = [sum(nullmodel[i].τ .* V[i]) for i in 1:nfolds]
+
+        # Predict random effects for each fold
+        b = [PenalizedGLMM.predict(
+            modelfit[i],
+            covfile,
+            grmfile,
+            plinkfile,
+            snpfile = snpfile,
+            snpmodel = snpmodel,
+            snpinds = snpinds,
+            covrowinds = covrowinds[foldid .== i],
+            covrowtraininds = covrowinds[foldid .!= i],
+            covars = coefnames(apply_schema(nullformula, schema(nullformula, covdf)).rhs), 
+            geneticrowinds = geneticrowinds[foldid .== i],
+            grmrowinds = grminds[foldid .== i],
+            grmcolinds = grminds[foldid .!= i],
+            M = M,
+            GEIvar = GEIvar,
+            GEIkin = GEIkin,
+            outtype = :random
+            ) for i in 1:nfolds]
+
+        # Compute deviance for each fold
+        meanloss = [model_dev(family, b[i][:, j], τV[i], covdf[foldid .== i, coefnames(apply_schema(nullformula, schema(nullformula, covdf)).lhs)], yhat[i][:, j]) for i in 1:nfolds, j in 1:size(yhat[1], 2)] |> 
+                        x -> vec(mean(x, dims = 1))
+
+        j = ceil(Int,  argmin(meanloss) / nlambda)
+    elseif type_measure == :auc
+        # Compute AUC for each fold
+        ctrls = [(covdf[foldid .== i, coefnames(apply_schema(nullformula, schema(nullformula, covdf)).lhs)] .== 0) for i in 1:nfolds]
+        cases = [(covdf[foldid .== i, coefnames(apply_schema(nullformula, schema(nullformula, covdf)).lhs)] .== 1) for i in 1:nfolds]
+
+        meanloss = [ROCAnalysis.auc(roc(yhat[i][ctrls[i], j], yhat[i][cases[i], j])) for i in 1:nfolds, j in 1:size(yhat[1], 2)] |> 
+                        x  -> vec(mean(x, dims = 1))
+
+        j = ceil(Int,  argmax(meanloss)/ nlambda)
+    end
+                       
+    
+    jj = max_args - (j - 1) * nlambda
+
+    # Fit null model using all observations
+    nullmodel_full = pglmm_null(
+        nullformula,
+        covfile,
+        grmfile,
+        covrowinds = covrowinds,
+        grminds = grminds,
+        family = family,
+        link = link,
+        GEIvar = GEIvar,
+        GEIkin = GEIkin,
+        M = M,
+        tol = tol,
+        maxiter = maxiter
+        )
+
+    # Fit lasso model using all observations
+    modelfit_full = pglmm(
+        nullmodel_full, 
+        plinkfile,
+        snpfile = snpfile,
+        snpmodel = snpmodel,
+        snpinds = snpinds,
+        geneticrowinds = geneticrowinds,
+        irls_tol = irls_tol,
+        irls_maxiter = irls_maxiter,
+        nlambda = nlambda,
+        rho = rho[j],
+        verbose = verbose,
+        standardize_X = standardize_X,
+        standardize_G = standardize_G,
+        criterion = criterion,
+        earlystop = earlystop,
+        method = method
+        )
+
+    # Return lasso path for best value of rho only
+    return(path = modelfit_full, meanloss = meanloss[((j-1)*nlambda+1):(j*nlambda)])
+
 end

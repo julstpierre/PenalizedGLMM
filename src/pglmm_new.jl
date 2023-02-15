@@ -31,13 +31,13 @@ function pglmm(
     geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     irls_tol::Float64 = 1e-7,
     irls_maxiter::Integer = 500,
-    K::Integer = 100,
+    nlambda::Integer = 100,
     rho::Union{Real, AbstractVector{<:Real}} = 0.5,
     verbose::Bool = false,
     standardize_X::Bool = true,
     standardize_G::Bool = true,
     criterion = :coef,
-    earlystop::Bool = true,
+    earlystop::Bool = false,
     method = :cd,
     kwargs...
     )
@@ -48,7 +48,7 @@ function pglmm(
     # geneticrowinds = trainrowinds
     # irls_tol = 1e-7
     # irls_maxiter = 500
-    # K = 100
+    # nlambda = 100
     # rho = collect(0:0.1:0.5)
     # verbose = true
     # standardize_X = true
@@ -127,11 +127,11 @@ function pglmm(
     # λ_seq, path = Vector{typeof(μ)}(undef, x), Array{NamedTuple}(undef, x)
     # Threads.@threads for j in 1:x
     #        λ_seq[j] = lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j])
-    #        path[j] = pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], K, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method)
+    #        path[j] = pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method)
     # end
 
     # Fit penalized model for each value of rho
-    path = [pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], K, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method) for j in 1:x]
+    path = [pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method) for j in 1:x]
 
     # Separate intercept from coefficients
     a0, alphas = intercept ? ([path[j].alphas[1,:] for j in 1:x], [path[j].alphas[2:end,:] for j in 1:x]) : ([nothing for j in 1:x], [path[j].alphas for j in 1:x])
@@ -193,7 +193,7 @@ function pglmm_fit(
     p_fG::Vector{T},
     λ_seq::Vector{T},
     rho::Real,
-    K::Int64,
+    nlambda::Int64,
     w::Vector{T},
     eigvals::Vector{T},
     verbose::Bool,
@@ -210,15 +210,15 @@ function pglmm_fit(
 ) where T
 
     # Initialize array to store output for each λ
-    alphas = zeros(length(α), K)
-    betas = zeros(length(β), K)
-    pct_dev = zeros(T, K)
+    alphas = zeros(length(α), nlambda)
+    betas = zeros(length(β), nlambda)
+    pct_dev = zeros(T, nlambda)
     dev_ratio = convert(T, NaN)
-    fitted_means = zeros(length(y), K)
+    fitted_means = zeros(length(y), nlambda)
 
     # Loop through sequence of λ
     i = 0
-    for _ = 1:K
+    for _ = 1:nlambda
         # Next iterate
         i += 1
         converged = false
@@ -309,7 +309,7 @@ function pglmm_fit(
     p_fG::Vector{T},
     λ_seq::Vector{T},
     rho::Real,
-    K::Int64,
+    nlambda::Int64,
     w::Vector{T},
     eigvals::Vector{T},
     verbose::Bool,
@@ -326,16 +326,16 @@ function pglmm_fit(
 ) where T
 
     # Initialize array to store output for each λ
-    alphas = zeros(length(α), K)
-    betas = zeros(length(β), K)
-    gammas = zeros(length(γ), K)
-    pct_dev = zeros(T, K)
+    alphas = zeros(length(α), nlambda)
+    betas = zeros(length(β), nlambda)
+    gammas = zeros(length(γ), nlambda)
+    pct_dev = zeros(T, nlambda)
     dev_ratio = convert(T, NaN)
-    fitted_means = zeros(length(y), K)
+    fitted_means = zeros(length(y), nlambda)
 
     # Loop through sequence of λ
     i = 0
-    for _ = 1:K
+    for _ = 1:nlambda
         # Next iterate
         i += 1
         converged = false
@@ -1036,14 +1036,14 @@ function lambda_seq(
     p_fX::Vector{T},
     p_fG::Vector{T},
     rho::Real,
-    K::Integer = 100
+    nlambda::Integer = 100
     ) where T
 
     λ_min_ratio = (length(r) < size(G, 2) ? 1e-2 : 1e-4)
     λ_max = lambda_max(nothing, X, r, p_fX)
     λ_max = lambda_max(D, G, r, p_fG, λ_max, rho = rho)
     λ_min = λ_max * λ_min_ratio
-    λ_step = log(λ_min_ratio)/(K - 1)
+    λ_step = log(λ_min_ratio)/(nlambda - 1)
     λ_seq = exp.(collect(log(λ_max+100*eps(λ_max)):λ_step:log(λ_min)))
 
     λ_seq
@@ -1110,10 +1110,15 @@ end
 
 # Functions to calculate deviance
 model_dev(::Binomial, δ::Vector{T}, w::Vector{T}, r::Vector{T}, eigvals::Vector{T}, y::Vector{Int64}, μ::Vector{Float64}) where T = LogisticDeviance(δ, eigvals, y, μ)
+model_dev(::Binomial, b::Vector{T}, τV::Matrix{T}, y::Vector{Int64}, μ::Vector{Float64}) where T = LogisticDeviance(b, τV, y, μ)
 model_dev(::Normal, δ::Vector{T}, w::T, r::Vector{T}, eigvals::Vector{T}, kargs...) where T = NormalDeviance(δ, w, r, eigvals)
 
 function LogisticDeviance(δ::Vector{T}, eigvals::Vector{T}, y::Vector{Int64}, μ::Vector{T}) where T
     -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + dot(δ, Diagonal(eigvals), δ)
+end
+
+function LogisticDeviance(b::Vector{T}, τV::Matrix{T}, y::Vector{Int64}, μ::Vector{T}) where T
+    -2 * sum(y .* log.(μ ./ (1 .- μ)) .+ log.(1 .- μ)) + dot(b, inv(τV), b)
 end
 
 function NormalDeviance(δ::Vector{T}, w::T, r::Vector{T}, eigvals::Vector{T}) where T
@@ -1315,17 +1320,20 @@ function predict(path::pglmmPath,
 
     if fixed_effects_only == false
         if path.family == Binomial()
-            η += Σ_12 * (path.y .- path.fitted_values[:,s])
+            b = Σ_12 * (path.y .- path.fitted_values[:,s])
         elseif path.family == Normal()
-            η += Σ_12 * path.UD_invUt * path.fitted_values[:,s]
+            b = Σ_12 * path.UD_invUt * path.fitted_values[:,s]
         end
+        η += b
     end
 
-    # Return linear predictor (default) or fitted probs
+    # Return linear predictor (default), fitted probs or random effects
     if outtype == :response
         return(η)
     elseif outtype == :prob
         return(GLM.linkinv.(LogitLink(), η))
+    elseif outtype == :random
+        return(b)
     end
 end 
 
@@ -1355,11 +1363,11 @@ end
 
 function GIC(path::pglmmPath, criterion; return_val = false)
     
-    # Obtain number of rows (n), predictors (p) and λ values (K)
+    # Obtain number of rows (n), predictors (p) and λ values (nlambda)
     n = size(path.y, 1)
-    m, (p, K) = size(path.alphas, 1), size(path.betas)
-    df = path.intercept .+ [length(findall(x -> x != 0, vec(view([path.alphas; path.betas], :, k)))) for k in 1:K] .+ length(path.τ)
-    df += !isnothing(path.gammas) ? [length(findall(x -> x != 0, vec(view(path.gammas, :, k)))) for k in 1:K] : zero(df)
+    m, (p, nlambda) = size(path.alphas, 1), size(path.betas)
+    df = path.intercept .+ [length(findall(x -> x != 0, vec(view([path.alphas; path.betas], :, k)))) for k in 1:nlambda] .+ length(path.τ)
+    df += !isnothing(path.gammas) ? [length(findall(x -> x != 0, vec(view(path.gammas, :, k)))) for k in 1:nlambda] : zero(df)
 
     # Define GIC criterion
     if criterion == :BIC

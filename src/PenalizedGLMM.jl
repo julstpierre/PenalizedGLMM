@@ -7,10 +7,12 @@ using SnpArrays
 
 import Base.show
 export pglmm_null
+export pglmm_cv
 export pglmm
 
 include("pglmm_null.jl")
 include("pglmm_new.jl")
+include("pglmm_cv.jl")
 include("utils.jl")
 
 end
