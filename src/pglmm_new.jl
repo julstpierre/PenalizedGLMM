@@ -1031,7 +1031,7 @@ end
 function lambda_seq(
     r::Vector{T}, 
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     D::Union{Vector{T}, Nothing}; 
     p_fX::Vector{T},
     p_fG::Vector{T},
@@ -1549,7 +1549,7 @@ function P(α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, p_fX::
 end
 
 # Compute strongrule for the lasso
-function compute_strongrule(dλ::T, p_fX::Vector{T}, p_fG::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, X::Matrix{T}, G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}, y::Vector{Int}, μ::Vector{T}) where T
+function compute_strongrule(dλ::T, p_fX::Vector{T}, p_fG::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, X::Matrix{T}, G::Union{Matrix{T},SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}}, y::Vector{Int}, μ::Vector{T}) where T
     for j in 1:length(α)
         j in α.nzind && continue
         c = compute_prod(X, y, μ, j)
@@ -1570,7 +1570,7 @@ function compute_strongrule(dλ::T, p_fX::Vector{T}, p_fG::Vector{T}; α::Sparse
 end
 
 # Compute strongrule for the group lasso + lasso (CAP)
-function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vector{T}, D::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, X::Matrix{T}, G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}, y::Vector{Int}, μ::Vector{T}) where T
+function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vector{T}, D::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, X::Matrix{T}, G::Union{Matrix{T},SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}}, y::Vector{Int}, μ::Vector{T}) where T
     for j in 1:length(α)
         j in α.nzind && continue
         c = compute_prod(X, y, μ, j)
