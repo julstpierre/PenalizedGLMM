@@ -184,7 +184,7 @@ function pglmm_fit(
     Ytilde::Vector{T},
     y::Vector{Int64},
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     U::Matrix{T},
     D::Nothing,
     nulldev::T,
@@ -300,7 +300,7 @@ function pglmm_fit(
     Ytilde::Vector{T},
     y::Vector{Int64},
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     U::Matrix{T},
     D::Vector{T},
     nulldev::T,
@@ -416,7 +416,7 @@ end
 function cd_lasso(
     # positional arguments
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     λ::T;
     #keywords arguments
     family::UnivariateDistribution,
@@ -488,7 +488,7 @@ function cd_lasso(
     # positional arguments
     D::Vector{T},
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     λ::T,
     rho::Real;
     #keywords arguments
@@ -609,7 +609,7 @@ end
 function cycle(
     # positional arguments
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     λ::T,
     all_pred::Val{false};
     #keywords arguments
@@ -655,7 +655,7 @@ function cycle(
     # positional arguments
     D::Vector{T},
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     λ::T,
     rho::Real,
     all_pred::Val{false};
@@ -717,7 +717,7 @@ end
 function cycle(
     # positional arguments
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     λ::T,
     all_pred::Val{true};
     #keywords arguments
@@ -786,7 +786,7 @@ function cycle(
     # positional arguments
     D::Vector{T},
     X::Matrix{T},
-    G::SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}},
+    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}},
     λ::T,
     rho::Real,
     all_pred::Val{true};
