@@ -59,6 +59,42 @@ function pglmm_cv(
     kwargs...
     ) where T
     
+    # Fit null model using all observations
+    nullmodel_full = pglmm_null(
+        nullformula,
+        covfile,
+        grmfile,
+        covrowinds = covrowinds,
+        grminds = grminds,
+        family = family,
+        link = link,
+        GEIvar = GEIvar,
+        GEIkin = GEIkin,
+        M = M,
+        tol = tol,
+        maxiter = maxiter
+        )
+
+    # Fit lasso model using all observations
+    modelfit_full = pglmm(
+        nullmodel_full, 
+        plinkfile,
+        snpfile = snpfile,
+        snpmodel = snpmodel,
+        snpinds = snpinds,
+        geneticrowinds = geneticrowinds,
+        irls_tol = irls_tol,
+        irls_maxiter = irls_maxiter,
+        nlambda = nlambda,
+        rho = rho,
+        verbose = verbose,
+        standardize_X = standardize_X,
+        standardize_G = standardize_G,
+        criterion = criterion,
+        earlystop = earlystop,
+        method = method
+        )
+
     # Read covariate file
     covdf = CSV.read(covfile, DataFrame)
 
@@ -102,6 +138,7 @@ function pglmm_cv(
         irls_tol = irls_tol,
         irls_maxiter = irls_maxiter,
         nlambda = nlambda,
+        lambda = [modelfit_full[i].lambda for i in 1:length(rho)],
         rho = rho,
         verbose = verbose,
         standardize_X = standardize_X,
@@ -182,6 +219,7 @@ function pglmm_cv(
                         x -> vec(mean(x, dims = 1))
 
         j = ceil(Int,  argmin(meanloss) / nlambda)
+        jj = argmin(meanloss[((j-1)*nlambda+1):(j*nlambda)])
     elseif type_measure == :auc
         # Compute AUC for each fold
         ctrls = [(covdf[foldid .== i, coefnames(apply_schema(nullformula, schema(nullformula, covdf)).lhs)] .== 0) for i in 1:nfolds]
@@ -191,45 +229,10 @@ function pglmm_cv(
                         x  -> vec(mean(x, dims = 1))
 
         j = ceil(Int,  argmax(meanloss)/ nlambda)
+        jj = argmax(meanloss[((j-1)*nlambda+1):(j*nlambda)])
     end
 
-    # Fit null model using all observations
-    nullmodel_full = pglmm_null(
-        nullformula,
-        covfile,
-        grmfile,
-        covrowinds = covrowinds,
-        grminds = grminds,
-        family = family,
-        link = link,
-        GEIvar = GEIvar,
-        GEIkin = GEIkin,
-        M = M,
-        tol = tol,
-        maxiter = maxiter
-        )
-
-    # Fit lasso model using all observations
-    modelfit_full = pglmm(
-        nullmodel_full, 
-        plinkfile,
-        snpfile = snpfile,
-        snpmodel = snpmodel,
-        snpinds = snpinds,
-        geneticrowinds = geneticrowinds,
-        irls_tol = irls_tol,
-        irls_maxiter = irls_maxiter,
-        nlambda = nlambda,
-        rho = rho[j],
-        verbose = verbose,
-        standardize_X = standardize_X,
-        standardize_G = standardize_G,
-        criterion = criterion,
-        earlystop = earlystop,
-        method = method
-        )
-
-    # Return lasso path for best value of rho only
-    return(path = modelfit_full, meanloss = meanloss[((j-1)*nlambda+1):(j*nlambda)])
+    # Return lasso path and optimal values of rho and lambda
+    return(path = modelfit_full, rho = TuningParms(rho[j], j), lambda = TuningParms(modelfit_full[j].lambda[jj], jj), meanloss = meanloss)
 
 end

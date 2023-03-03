@@ -29,9 +29,10 @@ function pglmm(
     snpmodel = ADDITIVE_MODEL,
     snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-    irls_tol::Float64 = 1e-7,
+    irls_tol::T = 1e-7,
     irls_maxiter::Integer = 500,
     nlambda::Integer = 100,
+    lambda::Union{Nothing, Vector{Vector{T}}} = nothing,
     rho::Union{Real, AbstractVector{<:Real}} = 0.5,
     verbose::Bool = false,
     standardize_X::Bool = true,
@@ -40,7 +41,7 @@ function pglmm(
     earlystop::Bool = false,
     method = :cd,
     kwargs...
-    )
+    ) where T
 
     # # keyword arguments
     # snpmodel = ADDITIVE_MODEL
@@ -121,7 +122,7 @@ function pglmm(
     rho = !isnothing(ind_D) ? rho : 0
     @assert all(0 .<= rho .< 1) "rho parameter must be in the range (0, 1]."
     x = length(rho)
-    λ_seq = [lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
+    λ_seq = !isnothing(lambda) : lambda ? [lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
    
     # Fit penalized model for each value of rho
     # λ_seq, path = Vector{typeof(μ)}(undef, x), Array{NamedTuple}(undef, x)
