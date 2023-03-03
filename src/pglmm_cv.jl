@@ -192,9 +192,6 @@ function pglmm_cv(
 
         j = ceil(Int,  argmax(meanloss)/ nlambda)
     end
-                       
-    
-    jj = max_args - (j - 1) * nlambda
 
     # Fit null model using all observations
     nullmodel_full = pglmm_null(
