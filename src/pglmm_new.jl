@@ -122,7 +122,7 @@ function pglmm(
     rho = !isnothing(ind_D) ? rho : 0
     @assert all(0 .<= rho .< 1) "rho parameter must be in the range (0, 1]."
     x = length(rho)
-    λ_seq = !isnothing(lambda) : lambda ? [lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
+    λ_seq = !isnothing(lambda) ? lambda : [lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
    
     # Fit penalized model for each value of rho
     # λ_seq, path = Vector{typeof(μ)}(undef, x), Array{NamedTuple}(undef, x)
