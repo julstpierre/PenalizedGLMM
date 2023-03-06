@@ -94,7 +94,8 @@ function pglmm_cv(
         standardize_G = standardize_G,
         criterion = criterion,
         earlystop = earlystop,
-        method = method
+        method = method,
+        upper_bound = upper_bound
         )
 
     # Read covariate file
@@ -147,7 +148,8 @@ function pglmm_cv(
         standardize_G = standardize_G,
         criterion = criterion,
         earlystop = earlystop,
-        method = method
+        method = method,
+        upper_bound = upper_bound
         ) for i in 1:nfolds]
 
     # Make predictions for each fold
