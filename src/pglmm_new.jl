@@ -18,7 +18,8 @@
 - `standardize_G::Bool = true (default)`: standardize genetic predictors. Coefficients are returned on original scale.
 - `criterion`: criterion for coordinate descent convergence. Can be equal to `:coef` (default) or `:obj`.
 - `earlystop::Bool = true (default)`: should full lasso path search stop earlier if deviance change is smaller than MIN_DEV_FRAC_DIFF or higher than MAX_DEV_FRAC ? 
-- `method`: which method to use to estimate random effects vector. Can be equal to `:cd` (default) for coordinate descent or `:conjgrad` for conjuguate gradient descent.  
+- `method`: which method to use to estimate random effects vector. Can be equal to `:cd` (default) for coordinate descent or `:conjgrad` for conjuguate gradient descent.
+- `upper_bound::Bool = false (default)`: For logistic regression, should an upper-bound be used on the Hessian ?
 """
 function pglmm(
     # positional arguments
@@ -40,6 +41,7 @@ function pglmm(
     criterion = :coef,
     earlystop::Bool = false,
     method = :cd,
+    upper_bound::Bool = false,
     kwargs...
     ) where T
 
@@ -100,7 +102,7 @@ function pglmm(
     y = nullmodel.y
     if nullmodel.family == Binomial()
         μ, ybar = GLM.linkinv.(LogitLink(), nullmodel.η), mean(y)
-        w = μ .* (1 .- μ)
+        w = upper_bound ? repeat([0.25], length(y)) : μ .* (1 .- μ)
         Ytilde = nullmodel.η + (y - μ) ./ w
         nulldev = -2 * sum(y * log(ybar / (1 - ybar)) .+ log(1 - ybar))
     elseif nullmodel.family == Normal()
@@ -132,7 +134,7 @@ function pglmm(
     # end
 
     # Fit penalized model for each value of rho
-    path = [pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method) for j in 1:x]
+    path = [pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method, upper_bound) for j in 1:x]
 
     # Separate intercept from coefficients
     a0, alphas = intercept ? ([path[j].alphas[1,:] for j in 1:x], [path[j].alphas[2:end,:] for j in 1:x]) : ([nothing for j in 1:x], [path[j].alphas for j in 1:x])
@@ -202,7 +204,8 @@ function pglmm_fit(
     earlystop::Bool,
     irls_tol::T,
     irls_maxiter::Int64,
-    method;
+    method,
+    upper_bound::Bool;
     α::SparseVector{T},
     β::SparseVector{T},
     γ::SparseVector{T},
@@ -246,7 +249,8 @@ function pglmm_fit(
 
             # Update μ and w
             μ, w = updateμ(r, Ytilde)
-            
+            w = upper_bound ? repeat([0.25], length(μ)) : w
+
             # Update deviance and loss function
             prev_loss = loss
             dev = LogisticDeviance(δ, eigvals, y, μ)
@@ -260,7 +264,8 @@ function pglmm_fit(
                 while loss > prev_loss
                     s /= 2
                     β = β_last + s * d
-                    μ, w = updateμ(r, Ytilde) 
+                    μ, w = updateμ(r, Ytilde)
+                    w = upper_bound ? repeat([0.25], length(μ)) : w 
                     dev = LogisticDeviance(δ, eigvals, y, μ)
                     loss = dev/2 + last(λ) * P(α, β, p_fX, p_fG)
                 end =#
@@ -318,7 +323,8 @@ function pglmm_fit(
     earlystop::Bool,
     irls_tol::T,
     irls_maxiter::Int64,
-    method;
+    method,
+    upper_bound::Bool;
     α::SparseVector{T},
     β::SparseVector{T},
     γ::SparseVector{T},
@@ -363,7 +369,8 @@ function pglmm_fit(
 
             # Update μ and w
             μ, w = updateμ(r, Ytilde)
-            
+            w = upper_bound ? repeat([0.25], length(μ)) : w
+
             # Update deviance and loss function
             prev_loss = loss
             dev = LogisticDeviance(δ, eigvals, y, μ)
@@ -377,7 +384,8 @@ function pglmm_fit(
                 while loss > prev_loss
                     s /= 2
                     β = β_last + s * d
-                    μ, w = updateμ(r, Ytilde) 
+                    μ, w = updateμ(r, Ytilde)
+                    w = upper_bound ? repeat([0.25], length(μ)) : w 
                     dev = LogisticDeviance(δ, eigvals, y, μ)
                     loss = dev/2 + last(λ) * P(α, β, γ, p_fX, p_fG)
                 end =#
@@ -1008,7 +1016,7 @@ mutable struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray, T<
     UD_invUt::B                                 # eigenvectors matrix times diagonal weights matrix
     τ::A                                        # estimated variance components
     intercept::Bool                             # boolean for intercept
-    rho::Union{Nothing, Real}                      # rho tuninng parameter
+    rho::Union{Nothing, Real}                   # rho tuninng parameter
 end
 
 function show(io::IO, g::pglmmPath)
