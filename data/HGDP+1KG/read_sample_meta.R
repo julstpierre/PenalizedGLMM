@@ -23,7 +23,7 @@ related[which(related_samples != "[]")] <- "true"
 related_exclude <- sapply(strsplit(samples$relatedness_inference, ","), function(x) last(x)) %>%
                    str_replace("related:", "") %>%
                    str_replace("\\}", "")
-related_exclude[which(related_exclude[related == "false"] == "true")] <- "false"
+related_exclude[related_exclude == "true" & related == "false"] <- "false"
 
 # Sample metadata
 project <- sapply(strsplit(samples$hgdp_tgp_meta, ","), function(x) x[1]) %>%

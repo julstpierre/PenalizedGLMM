@@ -19,6 +19,7 @@
 - `criterion`: criterion for coordinate descent convergence. Can be equal to `:coef` (default) or `:obj`.
 - `earlystop::Bool = true (default)`: should full lasso path search stop earlier if deviance change is smaller than MIN_DEV_FRAC_DIFF or higher than MAX_DEV_FRAC ? 
 - `method = cd (default)`: which method to use to estimate random effects vector. Can be equal to `:cd` (default) for coordinate descent or `:conjgrad` for conjuguate gradient descent.
+- `upper_bound::Bool = false (default)`: For logistic regression, should an upper-bound be used on the Hessian ?
 - `nfolds = 10 (default)`: number of cross-validation folds - default is 10.
 - `foldid::Union{Nothing, AbstractVector{<:Integer}}`: an optional vector of values between 1 and nfold identifying what fold each observation is in. If supplied, nfolds can be missing.
 - `type_measure`: loss to use for cross-validation. Can be equal to `:deviance` (default), which uses deviance for logistic regression, or `:auc` for AUC.
@@ -53,6 +54,7 @@ function pglmm_cv(
     criterion = :coef,
     earlystop::Bool = false,
     method = :cd,
+    upper_bound::Bool = false,
     nfolds::Integer = 5,
     foldid::Union{Nothing, AbstractVector{<:Integer}} = nothing,
     type_measure = :deviance,

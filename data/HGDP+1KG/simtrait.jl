@@ -165,7 +165,7 @@ run(`$ADMIXTURE_EXE -P admix.bed 7`)
 # first read in the P and Q matrix output from ADMIXTURE and tranpose them
 Pt = CSV.read("admix.7.P", DataFrame, header = false) |> Matrix |> transpose
 Qt = CSV.read("admix.7.Q", DataFrame, header = false) |> Matrix |> transpose
-GRM = SnpArrays.grm_admixture(SnpArray("admix.bed"), Pt, Qt)
+GRM = 2 * SnpArrays.grm_admixture(SnpArray("admix.bed"), Pt, Qt)
 
 # Make sure GRM is posdef
 function posdef(K, n = size(K, 1), xi = 1e-4)
