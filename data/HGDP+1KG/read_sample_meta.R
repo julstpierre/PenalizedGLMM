@@ -20,10 +20,20 @@ high_quality <- samples$high_quality
 related_samples <- sapply(str_match_all(samples$relatedness_inference, "s:\\s*(.*?)\\s*,"), function(x) str_replace(x[, 2], "\\[\\{s:", ""))
 related <- rep("false", length(related_samples))
 related[which(related_samples != "[]")] <- "true"
-related_exclude <- sapply(strsplit(samples$relatedness_inference, ","), function(x) last(x)) %>%
-                   str_replace("related:", "") %>%
-                   str_replace("\\}", "")
-related_exclude[related_exclude == "true" & related == "false"] <- "false"
+
+related_exclude <- rep("false", length(related_samples))
+related_exclude[which(related_samples != "[]")] <- "true"
+
+for (i in which(related_samples != "[]")){
+  rel_ids <- related_samples[i][related_samples[i] %in% ind]
+  if (length(rel_ids) >= 1){
+    keep <- unlist(c(ind[i], rel_ids)) %>% sort() %>% first()
+    related_exclude[which(ind==keep)] <- "false"
+  } else{
+    related[i] <- "false"
+    related_exclude[i] <- "false"
+  }
+}
 
 # Sample metadata
 project <- sapply(strsplit(samples$hgdp_tgp_meta, ","), function(x) x[1]) %>%
