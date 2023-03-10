@@ -42,7 +42,7 @@ function pglmm(
     earlystop::Bool = false,
     method = :cd,
     upper_bound::Bool = false,
-    tau::Union{Nothing, Vector{T}} = nothing
+    tau::Union{Nothing, Vector{T}} = nothing,
     kwargs...
     ) where T
 
