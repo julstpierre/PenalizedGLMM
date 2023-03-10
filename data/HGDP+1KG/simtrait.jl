@@ -40,7 +40,7 @@ hier = parse(Bool, ARGS_[9])
 kin = ARGS_[10]
 
 # Number of snps to use for GRM estimation
-p_kin = 20000
+p_kin = 50000
 
 # Directory where source data is located
 datadir = ARGS_[11]
@@ -137,41 +137,45 @@ elseif kin == "NONE"
     grm_inds = sample(setdiff(snps, snp_inds), p_kin, replace = false, ordered = true)
 end
 
-# Create a plink data set using unrelated individuals only for ADMIXTURE
-SnpArrays.filter(datadir * "HGDP+1KG/HGDP+1KG", 
-                 findall(dat.related_exclude .== false), 
-                 grm_inds, 
-                 des = "admix"
-                )
+# Estimated GRM
+GRM = 2 * grm(_HGDP1KG, cinds = grm_inds, method = :Robust)[inds, inds]
 
-# Create .pop file
-CSV.write("admix.pop", dat[findall(dat.related_exclude .== false),[:POP]], header = false)
+# # Create a plink data set using unrelated individuals only for ADMIXTURE
+# SnpArrays.filter(datadir * "HGDP+1KG/HGDP+1KG", 
+#                  findall(dat.related_exclude .== false), 
+#                  grm_inds, 
+#                  des = "admix"
+#                 )
 
-# Obtain estimated allele frequencies and estimated ancestry fractions using ADMIXTURE
-admixture("admix.bed", 7, supervised = true)
-run(`mv admix.7.P admix.7.P.in`)
+# # Create .pop file
+# CSV.write("admix.pop", dat[findall(dat.related_exclude .== false),[:POP]], header = false)
 
-# Create a plink data with all individuals for ADMIXTURE
-SnpArrays.filter(datadir * "HGDP+1KG/HGDP+1KG", 
-                 inds, 
-                 grm_inds, 
-                 des = "admix"
-                )
+# # Obtain estimated allele frequencies and estimated ancestry fractions using ADMIXTURE
+# admixture("admix.bed", 7, supervised = true)
+# run(`mv admix.7.P admix.7.P.in`)
 
-# Project all individuals using ADMIXTURE
-run(`$ADMIXTURE_EXE -P admix.bed 7`)
+# # Create a plink data with all individuals for ADMIXTURE
+# SnpArrays.filter(datadir * "HGDP+1KG/HGDP+1KG", 
+#                  inds, 
+#                  grm_inds, 
+#                  des = "admix"
+#                 )
 
-# Compute GRM
-# first read in the P and Q matrix output from ADMIXTURE and tranpose them
-Pt = CSV.read("admix.7.P", DataFrame, header = false) |> Matrix |> transpose
-Qt = CSV.read("admix.7.Q", DataFrame, header = false) |> Matrix |> transpose
-GRM = 2 * SnpArrays.grm_admixture(SnpArray("admix.bed"), Pt, Qt)
+# # Project all individuals using ADMIXTURE
+# run(`$ADMIXTURE_EXE -P admix.bed 7`)
+
+# # Compute GRM
+# # first read in the P and Q matrix output from ADMIXTURE and tranpose them
+# Pt = CSV.read("admix.7.P", DataFrame, header = false) |> Matrix |> transpose
+# Qt = CSV.read("admix.7.Q", DataFrame, header = false) |> Matrix |> transpose
+# GRM = 2 * SnpArrays.grm_admixture(SnpArray("admix.bed"), Pt, Qt)
 
 # Make sure GRM is posdef
 function posdef(K, n = size(K, 1), xi = 1e-4)
     while !isposdef(K)
+        println(xi)
         K = K + xi * Diagonal(ones(n))
-        xi = 10 * xi
+        xi = 2 * xi
     end
     return(K)
 end
@@ -198,7 +202,6 @@ rm("admix.bim", force = true)
 rm("admix.bed", force = true)
 rm("admix.fam", force = true)
 rm("admix.pop", force = true)
-
 
 # ------------------------------------------------------------------------
 # Simulate phenotypes
