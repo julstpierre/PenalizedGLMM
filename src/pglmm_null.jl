@@ -57,7 +57,7 @@ function pglmm_null(
     xi = 1e-4
     while !isposdef(GRM)
         GRM = GRM + xi * Diagonal(ones(n))
-        xi = 10 * xi
+        xi = 2 * xi
     end
 
     #--------------------------------------------------------------
@@ -182,6 +182,7 @@ function pglmm_null(
                    η = η,
                    converged = converged, 
                    τV = τV,
+                   V = V,
                    y = y,
                    X = X,
                    ind_D = ind_D,

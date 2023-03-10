@@ -55,6 +55,7 @@ function pglmm_cv(
     earlystop::Bool = false,
     method = :cd,
     upper_bound::Bool = false,
+    tau::Union{Nothing, Vector{T}} = nothing,
     nfolds::Integer = 5,
     foldid::Union{Nothing, AbstractVector{<:Integer}} = nothing,
     type_measure = :deviance,
@@ -95,7 +96,8 @@ function pglmm_cv(
         criterion = criterion,
         earlystop = earlystop,
         method = method,
-        upper_bound = upper_bound
+        upper_bound = upper_bound,
+        tau = tau
         )
 
     # Read covariate file
@@ -149,7 +151,8 @@ function pglmm_cv(
         criterion = criterion,
         earlystop = earlystop,
         method = method,
-        upper_bound = upper_bound
+        upper_bound = upper_bound,
+        tau = tau
         ) for i in 1:nfolds]
 
     # Make predictions for each fold

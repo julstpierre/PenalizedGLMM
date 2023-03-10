@@ -42,6 +42,7 @@ function pglmm(
     earlystop::Bool = false,
     method = :cd,
     upper_bound::Bool = false,
+    tau::Union{Nothing, Vector{T}} = nothing
     kwargs...
     ) where T
 
@@ -91,7 +92,9 @@ function pglmm(
     @assert n == length(nullmodel.y) "Genotype matrix and y must have same number of rows"
 
     # Spectral decomposition of sum(τ * V)
-    eigvals, U = eigen(nullmodel.τV)
+    τ = isnothing(tau) ? nullmodel.τ : tau
+    @assert length(V) == length(τ) "The numver of variance components in tau must be equal to the number of kinship matrices"
+    eigvals, U = eigen(sum(τ .* nullmodel.V))
     eigvals .= 1 ./ eigvals
     UD_invUt = U * Diagonal(eigvals) * U'
    
@@ -168,12 +171,12 @@ function pglmm(
     # Return lasso path
     if !isnothing(ind_D)
         if length(rho) == 1
-            pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, nullmodel.τ, intercept, rho[1])
+            pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, τ, intercept, rho[1])
         else
-            [pglmmPath(nullmodel.family, a0[j], alphas[j], betas[j], gammas[j], nulldev, path[j].pct_dev, path[j].λ, 0, path[j].fitted_values, y, UD_invUt, nullmodel.τ, intercept, rho[j]) for j in 1:x]
+            [pglmmPath(nullmodel.family, a0[j], alphas[j], betas[j], gammas[j], nulldev, path[j].pct_dev, path[j].λ, 0, path[j].fitted_values, y, UD_invUt, τ, intercept, rho[j]) for j in 1:x]
         end
     else
-        pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, nullmodel.τ, intercept, nothing)
+        pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, τ, intercept, nothing)
     end
 end
 
