@@ -93,7 +93,7 @@ function pglmm(
 
     # Spectral decomposition of sum(τ * V)
     τ = isnothing(tau) ? nullmodel.τ : tau
-    @assert length(V) == length(τ) "The numver of variance components in tau must be equal to the number of kinship matrices"
+    @assert length(nullmodel.V) == length(τ) "The numver of variance components in tau must be equal to the number of kinship matrices"
     eigvals, U = eigen(sum(τ .* nullmodel.V))
     eigvals .= 1 ./ eigvals
     UD_invUt = U * Diagonal(eigvals) * U'

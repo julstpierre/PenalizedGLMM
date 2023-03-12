@@ -170,18 +170,15 @@ function pglmm_null(
             # For binomial, set φ = 1. Else, return first element of theta as φ
             if family == Binomial()
                 φ, τ = 1.0, theta
-                τV = sum(τ .* V)
             elseif family == Normal()
                 φ, τ = first(theta), theta[2:end]
-                τV = sum(τ .* V[2:end])
             end
 
             return(φ = φ, 
                    τ = τ, 
                    α = α, 
                    η = η,
-                   converged = converged, 
-                   τV = τV,
+                   converged = converged,
                    V = V,
                    y = y,
                    X = X,
