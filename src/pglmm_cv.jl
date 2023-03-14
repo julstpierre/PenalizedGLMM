@@ -113,8 +113,17 @@ function pglmm_cv(
     # Check if geneticrowinds is missing
     if isnothing(geneticrowinds) geneticrowinds = 1:nrow(covdf) end
 
-    # Split observations into nfolds
-    foldid = isnothing(foldid) ? shuffle!((1:nrow(covdf)) .% nfolds) .+ 1 : foldid
+    # Split observations into nfolds with the same case:control ratio in each fold if applicable
+    if isnothing(foldid)
+        if family != Binomial()
+            foldid = shuffle!((1:nrow(covdf)) .% nfolds) .+ 1    
+        else
+            foldid = Vector{Int}(undef, nrow(covdf))
+            ctrls = findall(GLM.response(nullformula, covdf) .== 0)
+            cases = findall(GLM.response(nullformula, covdf) .== 1)
+            for x in (ctrls, cases) foldid[x] = shuffle!((1:length(x)) .% nfolds) .+ 1 end
+        end
+    end
 
     # Fit null model separately for each fold
     nullmodel = [pglmm_null(
