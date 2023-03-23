@@ -59,6 +59,7 @@ function pglmm_cv(
     nfolds::Integer = 5,
     foldid::Union{Nothing, AbstractVector{<:Integer}} = nothing,
     type_measure = :deviance,
+    nthreads = Threads.nthreads(),
     kwargs...
     ) where T
     
@@ -126,64 +127,136 @@ function pglmm_cv(
     end
 
     # Fit null model separately for each fold
-    nullmodel = [pglmm_null(
-        nullformula,
-        covfile,
-        grmfile,
-        covrowinds = covrowinds[foldid .!= i],
-        grminds = grminds[foldid .!= i],
-        family = family,
-        link = link,
-        GEIvar = GEIvar,
-        GEIkin = GEIkin,
-        M = M,
-        tol = tol,
-        maxiter = maxiter
-        )  for i in 1:nfolds]
+    if nthreads == 1
+        nullmodel = [pglmm_null(
+            nullformula,
+            covfile,
+            grmfile,
+            covrowinds = covrowinds[foldid .!= i],
+            grminds = grminds[foldid .!= i],
+            family = family,
+            link = link,
+            GEIvar = GEIvar,
+            GEIkin = GEIkin,
+            M = M,
+            tol = tol,
+            maxiter = maxiter
+            )  for i in 1:nfolds]
+    else
+        nullmodel = Vector{}(undef, nfolds)
+        Threads.@threads for i = 1:nfolds
+            nullmodel[i] = pglmm_null(
+                nullformula,
+                covfile,
+                grmfile,
+                covrowinds = covrowinds[foldid .!= i],
+                grminds = grminds[foldid .!= i],
+                family = family,
+                link = link,
+                GEIvar = GEIvar,
+                GEIkin = GEIkin,
+                M = M,
+                tol = tol,
+                maxiter = maxiter
+            )
+       end
+    end
 
     # Fit model separately for each fold
-    modelfit = [pglmm(
-        nullmodel[i], 
-        plinkfile,
-        snpfile = snpfile,
-        snpmodel = snpmodel,
-        snpinds = snpinds,
-        geneticrowinds = geneticrowinds[foldid .!= i],
-        irls_tol = irls_tol,
-        irls_maxiter = irls_maxiter,
-        nlambda = nlambda,
-        lambda = [modelfit_full[i].lambda for i in 1:length(rho)],
-        rho = rho,
-        verbose = verbose,
-        standardize_X = standardize_X,
-        standardize_G = standardize_G,
-        criterion = criterion,
-        earlystop = earlystop,
-        method = method,
-        upper_bound = upper_bound,
-        tau = tau
-        ) for i in 1:nfolds]
+    if nthreads == 1
+        modelfit = [pglmm(
+                nullmodel[i], 
+                plinkfile,
+                snpfile = snpfile,
+                snpmodel = snpmodel,
+                snpinds = snpinds,
+                geneticrowinds = geneticrowinds[foldid .!= i],
+                irls_tol = irls_tol,
+                irls_maxiter = irls_maxiter,
+                nlambda = nlambda,
+                lambda = [modelfit_full[i].lambda for i in 1:length(rho)],
+                rho = rho,
+                verbose = verbose,
+                standardize_X = standardize_X,
+                standardize_G = standardize_G,
+                criterion = criterion,
+                earlystop = earlystop,
+                method = method,
+                upper_bound = upper_bound,
+                tau = tau
+                ) for i in 1:nfolds]
+    else
+        modelfit = Vector{}(undef, nfolds)
+        Threads.@threads for i = 1:nfolds
+            modelfit[i] = pglmm(
+                nullmodel[i], 
+                plinkfile,
+                snpfile = snpfile,
+                snpmodel = snpmodel,
+                snpinds = snpinds,
+                geneticrowinds = geneticrowinds[foldid .!= i],
+                irls_tol = irls_tol,
+                irls_maxiter = irls_maxiter,
+                nlambda = nlambda,
+                lambda = [modelfit_full[i].lambda for i in 1:length(rho)],
+                rho = rho,
+                verbose = verbose,
+                standardize_X = standardize_X,
+                standardize_G = standardize_G,
+                criterion = criterion,
+                earlystop = earlystop,
+                method = method,
+                upper_bound = upper_bound,
+                tau = tau
+            )
+       end
+    end
 
     # Make predictions for each fold
-    yhat = [PenalizedGLMM.predict(
-        modelfit[i],
-        covfile,
-        grmfile,
-        plinkfile,
-        snpfile = snpfile,
-        snpmodel = snpmodel,
-        snpinds = snpinds,
-        covrowinds = covrowinds[foldid .== i],
-        covrowtraininds = covrowinds[foldid .!= i],
-        covars = coefnames(apply_schema(nullformula, schema(nullformula, covdf)).rhs), 
-        geneticrowinds = geneticrowinds[foldid .== i],
-        grmrowinds = grminds[foldid .== i],
-        grmcolinds = grminds[foldid .!= i],
-        M = M,
-        GEIvar = GEIvar,
-        GEIkin = GEIkin,
-        outtype = :prob
-        ) for i in 1:nfolds]
+    if nthreads == 1
+        yhat = [PenalizedGLMM.predict(
+            modelfit[i],
+            covfile,
+            grmfile,
+            plinkfile,
+            snpfile = snpfile,
+            snpmodel = snpmodel,
+            snpinds = snpinds,
+            covrowinds = covrowinds[foldid .== i],
+            covrowtraininds = covrowinds[foldid .!= i],
+            covars = coefnames(apply_schema(nullformula, schema(nullformula, covdf)).rhs), 
+            geneticrowinds = geneticrowinds[foldid .== i],
+            grmrowinds = grminds[foldid .== i],
+            grmcolinds = grminds[foldid .!= i],
+            M = M,
+            GEIvar = GEIvar,
+            GEIkin = GEIkin,
+            outtype = :prob
+            ) for i in 1:nfolds]
+    else 
+        yhat = Vector{}(undef, nfolds)
+        Threads.@threads for i = 1:nfolds
+            yhat[i] = PenalizedGLMM.predict(
+                modelfit[i],
+                covfile,
+                grmfile,
+                plinkfile,
+                snpfile = snpfile,
+                snpmodel = snpmodel,
+                snpinds = snpinds,
+                covrowinds = covrowinds[foldid .== i],
+                covrowtraininds = covrowinds[foldid .!= i],
+                covars = coefnames(apply_schema(nullformula, schema(nullformula, covdf)).rhs), 
+                geneticrowinds = geneticrowinds[foldid .== i],
+                grmrowinds = grminds[foldid .== i],
+                grmcolinds = grminds[foldid .!= i],
+                M = M,
+                GEIvar = GEIvar,
+                GEIkin = GEIkin,
+                outtype = :prob
+            )
+        end
+    end
 
     if type_measure == :deviance
         # Read GRM for test subjects
