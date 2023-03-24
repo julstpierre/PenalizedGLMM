@@ -80,26 +80,54 @@ function pglmm_cv(
         )
 
     # Fit lasso model using all observations
-    modelfit_full = pglmm(
-        nullmodel_full, 
-        plinkfile,
-        snpfile = snpfile,
-        snpmodel = snpmodel,
-        snpinds = snpinds,
-        geneticrowinds = geneticrowinds,
-        irls_tol = irls_tol,
-        irls_maxiter = irls_maxiter,
-        nlambda = nlambda,
-        rho = rho,
-        verbose = verbose,
-        standardize_X = standardize_X,
-        standardize_G = standardize_G,
-        criterion = criterion,
-        earlystop = earlystop,
-        method = method,
-        upper_bound = upper_bound,
-        tau = tau
-        )
+    if nthreads == 1 || length(rho) == 1
+        # Single thread
+        modelfit_full = pglmm(
+            nullmodel_full, 
+            plinkfile,
+            snpfile = snpfile,
+            snpmodel = snpmodel,
+            snpinds = snpinds,
+            geneticrowinds = geneticrowinds,
+            irls_tol = irls_tol,
+            irls_maxiter = irls_maxiter,
+            nlambda = nlambda,
+            rho = rho,
+            verbose = verbose,
+            standardize_X = standardize_X,
+            standardize_G = standardize_G,
+            criterion = criterion,
+            earlystop = earlystop,
+            method = method,
+            upper_bound = upper_bound,
+            tau = tau
+            )
+    else
+        # Parallel threads
+        modelfit_full = Vector{}(undef, length(rho))
+        Threads.@threads for i = 1:length(rho)
+            modelfit_full[i] = pglmm(
+                nullmodel_full, 
+                plinkfile,
+                snpfile = snpfile,
+                snpmodel = snpmodel,
+                snpinds = snpinds,
+                geneticrowinds = geneticrowinds,
+                irls_tol = irls_tol,
+                irls_maxiter = irls_maxiter,
+                nlambda = nlambda,
+                rho = rho[i],
+                verbose = verbose,
+                standardize_X = standardize_X,
+                standardize_G = standardize_G,
+                criterion = criterion,
+                earlystop = earlystop,
+                method = method,
+                upper_bound = upper_bound,
+                tau = tau
+                )
+        end
+    end
 
     # Read covariate file
     covdf = CSV.read(covfile, DataFrame)
@@ -128,6 +156,7 @@ function pglmm_cv(
 
     # Fit null model separately for each fold
     if nthreads == 1
+        # Single thread
         nullmodel = [pglmm_null(
             nullformula,
             covfile,
@@ -143,6 +172,7 @@ function pglmm_cv(
             maxiter = maxiter
             )  for i in 1:nfolds]
     else
+        # Parallel threads
         nullmodel = Vector{}(undef, nfolds)
         Threads.@threads for i = 1:nfolds
             nullmodel[i] = pglmm_null(
@@ -164,6 +194,7 @@ function pglmm_cv(
 
     # Fit model separately for each fold
     if nthreads == 1
+        # Single thread
         modelfit = [pglmm(
                 nullmodel[i], 
                 plinkfile,
@@ -186,6 +217,7 @@ function pglmm_cv(
                 tau = tau
                 ) for i in 1:nfolds]
     else
+        # Multiple threads
         modelfit = Vector{}(undef, nfolds)
         Threads.@threads for i = 1:nfolds
             modelfit[i] = pglmm(
@@ -214,6 +246,7 @@ function pglmm_cv(
 
     # Make predictions for each fold
     if nthreads == 1
+        # Single thread
         yhat = [PenalizedGLMM.predict(
             modelfit[i],
             covfile,
@@ -234,6 +267,7 @@ function pglmm_cv(
             outtype = :prob
             ) for i in 1:nfolds]
     else 
+        # Multiple threads
         yhat = Vector{}(undef, nfolds)
         Threads.@threads for i = 1:nfolds
             yhat[i] = PenalizedGLMM.predict(
