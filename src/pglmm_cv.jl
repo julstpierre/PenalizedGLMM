@@ -76,7 +76,8 @@ function pglmm_cv(
         GEIkin = GEIkin,
         M = M,
         tol = tol,
-        maxiter = maxiter
+        maxiter = maxiter,
+        tau = tau
         )
 
     # Fit lasso model using all observations
@@ -99,8 +100,7 @@ function pglmm_cv(
             criterion = criterion,
             earlystop = earlystop,
             method = method,
-            upper_bound = upper_bound,
-            tau = tau
+            upper_bound = upper_bound
             )
     else
         # Parallel threads
@@ -123,8 +123,7 @@ function pglmm_cv(
                 criterion = criterion,
                 earlystop = earlystop,
                 method = method,
-                upper_bound = upper_bound,
-                tau = tau
+                upper_bound = upper_bound
                 )
         end
     end
@@ -169,7 +168,8 @@ function pglmm_cv(
             GEIkin = GEIkin,
             M = M,
             tol = tol,
-            maxiter = maxiter
+            maxiter = maxiter,
+            tau = tau
             )  for i in 1:nfolds]
     else
         # Parallel threads
@@ -187,7 +187,8 @@ function pglmm_cv(
                 GEIkin = GEIkin,
                 M = M,
                 tol = tol,
-                maxiter = maxiter
+                maxiter = maxiter,
+                tau = tau
             )
        end
     end
@@ -213,8 +214,7 @@ function pglmm_cv(
                 criterion = criterion,
                 earlystop = earlystop,
                 method = method,
-                upper_bound = upper_bound,
-                tau = tau
+                upper_bound = upper_bound
                 ) for i in 1:nfolds]
     else
         # Multiple threads
@@ -238,8 +238,7 @@ function pglmm_cv(
                 criterion = criterion,
                 earlystop = earlystop,
                 method = method,
-                upper_bound = upper_bound,
-                tau = tau
+                upper_bound = upper_bound
             )
        end
     end

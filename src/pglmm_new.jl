@@ -42,7 +42,6 @@ function pglmm(
     earlystop::Bool = false,
     method = :cd,
     upper_bound::Bool = false,
-    tau::Union{Nothing, Vector{T}} = nothing,
     kwargs...
     ) where T
 
@@ -92,9 +91,7 @@ function pglmm(
     @assert n == length(nullmodel.y) "Genotype matrix and y must have same number of rows"
 
     # Spectral decomposition of sum(τ * V)
-    τ = isnothing(tau) ? nullmodel.τ : tau
-    @assert length(nullmodel.V) == length(τ) "The numver of variance components in tau must be equal to the number of kinship matrices"
-    eigvals, U = eigen(sum(τ .* nullmodel.V))
+    eigvals, U = eigen(sum(nullmodel.τ .* nullmodel.V))
     eigvals .= 1 ./ eigvals
     UD_invUt = U * Diagonal(eigvals) * U'
    
@@ -171,12 +168,12 @@ function pglmm(
     # Return lasso path
     if !isnothing(ind_D)
         if length(rho) == 1
-            pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, τ, intercept, rho[1])
+            pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, nullmodel.τ, intercept, rho[1])
         else
-            [pglmmPath(nullmodel.family, a0[j], alphas[j], betas[j], gammas[j], nulldev, path[j].pct_dev, path[j].λ, 0, path[j].fitted_values, y, UD_invUt, τ, intercept, rho[j]) for j in 1:x]
+            [pglmmPath(nullmodel.family, a0[j], alphas[j], betas[j], gammas[j], nulldev, path[j].pct_dev, path[j].λ, 0, path[j].fitted_values, y, UD_invUt, nullmodel.τ, intercept, rho[j]) for j in 1:x]
         end
     else
-        pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, τ, intercept, nothing)
+        pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, UD_invUt, nullmodel.τ, intercept, nothing)
     end
 end
 
@@ -248,6 +245,7 @@ function pglmm_fit(
             update_δ(Val(method); U = U, family = Binomial(), Ytilde = Ytilde, y = y, w = w, r = r, δ = δ, eigvals = eigvals, criterion = :coef, μ = μ)
 
             # Run coordinate descent inner loop to update β
+            β_last = β
             Swxx, Swgg = cd_lasso(X, G, λ; family = Binomial(), Ytilde = Ytilde, y = y, w = w, r = r, α = α, β = β, δ = δ, p_fX = p_fX, p_fG = p_fG, eigvals = eigvals, criterion = criterion)
 
             # Update μ and w
@@ -262,7 +260,7 @@ function pglmm_fit(
             # If loss function did not decrease, take a half step to ensure convergence
             if loss > prev_loss + length(μ)*eps(prev_loss)
                 println("step-halving because loss=$loss > $prev_loss + $(length(μ)*eps(prev_loss)) = length(μ)*eps(prev_loss)")
-                #= s = 1.0
+                s = 1.0
                 d = β - β_last
                 while loss > prev_loss
                     s /= 2
@@ -271,7 +269,7 @@ function pglmm_fit(
                     w = upper_bound ? repeat([0.25], length(μ)) : w 
                     dev = LogisticDeviance(δ, eigvals, y, μ)
                     loss = dev/2 + last(λ) * P(α, β, p_fX, p_fG)
-                end =#
+                end 
             end 
 
             # Update working response and residuals
@@ -368,6 +366,7 @@ function pglmm_fit(
             update_δ(Val(method); U = U, family = Binomial(), Ytilde = Ytilde, y = y, w = w, r = r, δ = δ, eigvals = eigvals, criterion = :coef, μ = μ)
 
             # Run coordinate descent inner loop to update β
+            β_last = β
             Swxx, Swgg, Swdg = cd_lasso(D, X, G, λ, rho; family = Binomial(), Ytilde = Ytilde, y = y, w = w, r = r, α = α, β = β, δ = δ, γ = γ, p_fX = p_fX, p_fG = p_fG, eigvals = eigvals, criterion = criterion)
 
             # Update μ and w
@@ -382,7 +381,7 @@ function pglmm_fit(
             # If loss function did not decrease, take a half step to ensure convergence
             if loss > prev_loss + length(μ)*eps(prev_loss)
                 println("step-halving because loss=$loss > $prev_loss + $(length(μ)*eps(prev_loss)) = length(μ)*eps(prev_loss)")
-                #= s = 1.0
+                s = 1.0
                 d = β - β_last
                 while loss > prev_loss
                     s /= 2
@@ -390,8 +389,8 @@ function pglmm_fit(
                     μ, w = updateμ(r, Ytilde)
                     w = upper_bound ? repeat([0.25], length(μ)) : w 
                     dev = LogisticDeviance(δ, eigvals, y, μ)
-                    loss = dev/2 + last(λ) * P(α, β, γ, p_fX, p_fG)
-                end =#
+                    loss = dev/2 + last(λ) * P(α, β, γ, p_fX, p_fG, rho)
+                end
             end 
 
             # Update working response and residuals

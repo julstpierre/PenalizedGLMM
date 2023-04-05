@@ -28,6 +28,7 @@ function pglmm_null(
     M::Union{Nothing, Vector{Any}} = nothing,
     tol::T = 1e-5,
     maxiter::Integer = 500,
+    tau::Union{Nothing, Vector{T}} = nothing,
     kwargs...
     ) where T
 
@@ -139,56 +140,98 @@ function pglmm_null(
 
     # Obtain initial values for variance components
     K = length(V)
-    theta0 = fill(var(Ytilde) / K, K)
+    theta0 = !isnothing(tau) ? tau : fill(var(Ytilde) / K, K)
     W = compute_weights(family, μ, first(theta0))
 
     # Initialize number of steps
     nsteps = 1
 
-    # Iterate until convergence
-    while true
-        # Update variance components estimates
-        fit0 = glmmfit_ai(family, theta0, V, X, Ytilde, W, K)
-        if nsteps == 1
-            theta = theta0 + n^-1 * theta0.^2 .* fit0.S
-        else
-            theta = max.(theta0 + fit0.AI \ fit0.S, 10^-6 * var(Ytilde))
+    if !isnothing(tau)
+        @assert K == length(tau) "The number of variance components in tau must be equal to the number of kinship matrices."
+
+        # Iterate until convergence
+        while true
+            # Update working response
+            fit = glmmfit_ai(family, tau, V, X, Ytilde, W, K, fit_only = true)
+            α, η = fit.α, fit.η
+            μ = updateμ(family, η, link)
+            W = compute_weights(family, μ, first(tau))
+            Ytilde = η + dg(μ) .* (y - μ)
+
+            # Check termination conditions
+            if  2 * maximum(vcat(abs.(α - α_0) ./ (abs.(α) + abs.(α_0) .+ tol))) < tol || nsteps >= maxiter 
+                # Check if maximum number of iterations was reached
+                converged = ifelse(nsteps < maxiter, true, false)
+
+                # For binomial, set φ = 1. Else, return first element of theta as φ
+                if family == Binomial()
+                    φ, τ = 1.0, tau
+                elseif family == Normal()
+                    φ, τ = first(tau), tau[2:end]
+                end
+
+                return(φ = φ, 
+                       τ = τ, 
+                       α = α, 
+                       η = η,
+                       converged = converged,
+                       V = V,
+                       y = y,
+                       X = X,
+                       ind_D = ind_D,
+                       family = family)
+                break
+            else
+                α_0 = α
+                nsteps += 1
+            end
         end
-
-        # Update working response
-        fit = glmmfit_ai(family, theta, V, X, Ytilde, W, K, fit_only = true)
-        α, η = fit.α, fit.η
-        μ = updateμ(family, η, link)
-        W = compute_weights(family, μ, first(theta))
-        Ytilde = η + dg(μ) .* (y - μ)
-
-        # Check termination conditions
-        if  2 * maximum(vcat(abs.(α - α_0) ./ (abs.(α) + abs.(α_0) .+ tol), abs.(theta - theta0) ./ (abs.(theta) + abs.(theta0) .+ tol))) < tol || nsteps >= maxiter 
-            # Check if maximum number of iterations was reached
-            converged = ifelse(nsteps < maxiter, true, false)
-
-            # For binomial, set φ = 1. Else, return first element of theta as φ
-            if family == Binomial()
-                φ, τ = 1.0, theta
-            elseif family == Normal()
-                φ, τ = first(theta), theta[2:end]
+    else
+        # Iterate until convergence
+        while true
+            # Update variance components estimates
+            fit0 = glmmfit_ai(family, theta0, V, X, Ytilde, W, K)
+            if nsteps == 1
+                theta = theta0 + n^-1 * theta0.^2 .* fit0.S
+            else
+                theta = max.(theta0 + fit0.AI \ fit0.S, 10^-6 * var(Ytilde))
             end
 
-            return(φ = φ, 
-                   τ = τ, 
-                   α = α, 
-                   η = η,
-                   converged = converged,
-                   V = V,
-                   y = y,
-                   X = X,
-                   ind_D = ind_D,
-                   family = family)
-            break
-        else
-            theta0 = theta
-            α_0 = α
-            nsteps += 1
+            # Update working response
+            fit = glmmfit_ai(family, theta, V, X, Ytilde, W, K, fit_only = true)
+            α, η = fit.α, fit.η
+            μ = updateμ(family, η, link)
+            W = compute_weights(family, μ, first(theta))
+            Ytilde = η + dg(μ) .* (y - μ)
+
+            # Check termination conditions
+            if  2 * maximum(vcat(abs.(α - α_0) ./ (abs.(α) + abs.(α_0) .+ tol), abs.(theta - theta0) ./ (abs.(theta) + abs.(theta0) .+ tol))) < tol || nsteps >= maxiter 
+                # Check if maximum number of iterations was reached
+                converged = ifelse(nsteps < maxiter, true, false)
+
+                # For binomial, set φ = 1. Else, return first element of theta as φ
+                if family == Binomial()
+                    φ, τ = 1.0, theta
+                elseif family == Normal()
+                    φ, τ = first(theta), theta[2:end]
+                end
+
+                return(φ = φ, 
+                       τ = τ, 
+                       α = α, 
+                       η = η,
+                       converged = converged,
+                       V = V,
+                       y = y,
+                       X = X,
+                       ind_D = ind_D,
+                       family = family)
+                break
+            else
+                theta0 = theta
+                α_0 = α
+                nsteps += 1
+            end
         end
     end
 
