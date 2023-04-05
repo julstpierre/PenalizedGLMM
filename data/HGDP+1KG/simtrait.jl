@@ -22,7 +22,7 @@ h2_b = parse(Float64, ARGS_[3])
 h2_d = parse(Float64, ARGS_[4])
 
 # Prevalence
-pi0 = parse(Float64, ARGS_[5])  
+prev = parse(Float64, ARGS_[5])  
 
 # Number of snps to randomly select accros genome
 p = parse(Int, ARGS_[6])
@@ -206,8 +206,15 @@ rm("admix.pop", force = true)
 # ------------------------------------------------------------------------
 # Simulate phenotypes
 # ------------------------------------------------------------------------
+# Simulate population structure
+Z = [dat.POP .== unique(dat.POP)[i] for i in 1:length(unique(dat.POP))] |> x-> mapreduce(permutedims, vcat, x)'
+pi0 = Z * rand(Uniform(0.1, 0.9), size(Z, 2))
+
+# Simulate Logistic error
+e = rand(Logistic(), size(dat, 1))
+
 # Variance components
-sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10)
+sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10) + var(pi0)
 sigma2_g = h2_g / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
 sigma2_GEI = h2_GEI / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
 sigma2_b = h2_b / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
@@ -231,12 +238,10 @@ b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(size(dat, 1))
 
 # Simulate binary traits
 logit(x) = log(x / (1 - x))
-expit(x) = exp(x) / (1 + exp(x))
 final_dat = @chain dat begin
-    @transform!(:logit_pi = logit(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE .- mean(:AGE))/ 10 + G * beta + (G .* :SEX) * gamma + b)
-    @transform!(:pi = expit.(:logit_pi))
-    @transform(:y = rand.([Binomial(1, :pi[i]) for i in 1:nrow(dat)]))
-    select!(Not([:pi, :logit_pi]))
+    @transform!(:logit_pi = logit.(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE .- mean(:AGE))/ 10 + G * beta + (G .* :SEX) * gamma + b + e)
+    @transform(:y = Int.(:logit_pi .> quantile(:logit_pi, 1 - prev)))
+    select!(Not([:logit_pi]))
 end
 
 # Prevalence by Population
