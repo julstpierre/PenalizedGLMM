@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.1", "10000", "0.01", "0.1", "true", "NONE" , ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.1", "10000", "0.01", "0.5", "true", "NONE" , ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -57,7 +57,7 @@ end
 dat = @chain CSV.read(datadir * "HGDP+1KG/covars.csv", DataFrame) begin
     @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE = round.(rand(Normal(50, 5), length(:ind)), digits = 0))
     rightjoin(samples, on = [:IID, :FID])
-    @select!(:FID, :IID, :POP, :SEX, :AGE, :related, :related_exclude, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
+    @select!(:FID, :IID, :POP, :SEX, :AGE, :related, :related_exclude)
 end
 
 # Randomly sample subjects by POP for training and test sets
@@ -203,6 +203,12 @@ rm("admix.bed", force = true)
 rm("admix.fam", force = true)
 rm("admix.pop", force = true)
 
+
+# Compute PCs by performing SVD on unrelated subjects only
+X_grm = convert(Matrix{Float64}, @view(_HGDP1KG[:, grm_inds]), impute = true, center = true, scale = true)
+U, S, V = svd(X_grm[findall(dat.related_exclude .== false),:])
+PCs = X_grm * V * inv(Diagonal(S))
+
 # ------------------------------------------------------------------------
 # Simulate phenotypes
 # ------------------------------------------------------------------------
@@ -251,7 +257,12 @@ println(combine(groupby(final_dat, :POP), :y => mean))
 #----------------------
 # Write csv files
 #---------------------
-# CSV file containing covariates
+# Add PCs to covariate file and write to CSV
+final_dat.PC1 = PCs[:, 1]; final_dat.PC2 = PCs[:, 2]
+final_dat.PC3 = PCs[:, 3]; final_dat.PC4 = PCs[:, 4]
+final_dat.PC5 = PCs[:, 5]; final_dat.PC6 = PCs[:, 6]
+final_dat.PC7 = PCs[:, 7]; final_dat.PC8 = PCs[:, 8]
+final_dat.PC9 = PCs[:, 9]; final_dat.PC10 = PCs[:, 10]
 CSV.write("covariate.txt", final_dat)
 
 # Convert simulated effect for each SNP on original genotype scale
