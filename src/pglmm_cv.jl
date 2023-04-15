@@ -56,7 +56,7 @@ function pglmm_cv(
     method = :cd,
     upper_bound::Bool = false,
     tau::Union{Nothing, Vector{T}} = nothing,
-    nfolds::Integer = 5,
+    nfolds::Integer = 4,
     foldid::Union{Nothing, AbstractVector{<:Integer}} = nothing,
     type_measure = :deviance,
     nthreads = Threads.nthreads(),

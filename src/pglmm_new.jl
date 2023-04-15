@@ -63,13 +63,13 @@ function pglmm(
     # Read genotype file
     if !isnothing(plinkfile)
 
-	    # read PLINK files
-	    geno = SnpArray(plinkfile * ".bed")
+        # read PLINK files
+        geno = SnpArray(plinkfile * ".bed")
         snpinds_ = isnothing(snpinds) ? (1:size(geno, 2)) : snpinds 
         geneticrowinds_ = isnothing(geneticrowinds) ? (1:size(geno, 1)) : geneticrowinds
         
         # Read genotype and calculate mean and standard deviation
-	    G = SnpLinAlg{Float64}(geno, model = snpmodel, impute = true, center = true, scale = standardize_G) |> x-> @view(x[geneticrowinds_, snpinds_])
+        G = SnpLinAlg{Float64}(geno, model = snpmodel, impute = true, center = true, scale = standardize_G) |> x-> @view(x[geneticrowinds_, snpinds_])
         muG, sG = standardizeG(@view(geno[geneticrowinds_, snpinds_]), snpmodel, standardize_G)
 
     elseif !isnothing(snpfile)
@@ -82,8 +82,8 @@ function pglmm(
         geneticrowinds_ = isnothing(geneticrowinds) ? (1:size(geno, 1)) : geneticrowinds
         G = convert.(Float64, Matrix(geno[geneticrowinds_, snpinds_]))
 
-	    # standardize genetic predictors
-    	G, muG, sG = standardizeX(G, standardize_G)
+        # standardize genetic predictors
+        G, muG, sG = standardizeX(G, standardize_G)
     end
 
     # Initialize number of subjects and predictors (including intercept)
@@ -1301,7 +1301,7 @@ function predict(path::pglmmPath,
         D = covdf[:, GEIvar]
         if GEIkin
             @assert length(path.τ) >= 2 "Only one variance component has been estimated under the null model."
-	    Dtrain = CSV.read(covfile, DataFrame)[covrowtraininds, GEIvar]
+        Dtrain = CSV.read(covfile, DataFrame)[covrowtraininds, GEIvar]
             V_D = D * Dtrain'
             for j in findall(x -> x == 0, Dtrain), i in findall(x -> x == 0, D)  
                     V_D[i, j] = 1 
@@ -1349,17 +1349,21 @@ function predict(path::pglmmPath,
 end 
 
 # Define a structure for the tuning parameters tuple
-mutable struct TuningParms
+struct TuningParms
   val::Real
   index::Int
 end
 
+Base.show(io::IO, g::TuningParms) = print(io, "value = $(g.val), index = $(g.index)")
+
 # Define a structure for the GIC output tuple
-mutable struct GICTuple{T<:AbstractFloat}
+struct GICTuple{T<:AbstractFloat}
   rho::TuningParms
   lambda::TuningParms
   GIC::T
 end
+
+Base.show(io::IO, g::GICTuple) = print(io, "rho = $(g.rho.val), lambda = $(g.lambda.val), GIC = $(g.GIC)")
 
 # GIC penalty parameter
 function GIC(path, criterion)
@@ -1432,7 +1436,7 @@ end
 # Calculate mean and scale for genotype data
 function standardizeG(s::AbstractSnpArray, model, scale::Bool, T = AbstractFloat)
     n, m = size(s)
-    μ, σ = Array{T}(undef, m), Array{T}(undef, m)	
+    μ, σ = Array{T}(undef, m), Array{T}(undef, m)   
     @inbounds for j in 1:m
         μj, mj = zero(T), 0
         for i in 1:n
@@ -1447,9 +1451,9 @@ function standardizeG(s::AbstractSnpArray, model, scale::Bool, T = AbstractFloat
     
     # Return centre and scale parameters
     if scale 
-	   return μ, σ
+       return μ, σ
     else 
-	   return μ, []
+       return μ, []
     end
 end
 
