@@ -46,8 +46,7 @@ function pglmm_cv(
     maxiter::Integer = 500,
     irls_tol::T = 1e-7,
     irls_maxiter::Integer = 500,
-    nlambda::Integer = 100,
-    rho::Union{Real, AbstractVector{<:Real}} = 0.5,
+    nlambda::Union{Nothing, Integer} = nothing,
     verbose::Bool = false,
     standardize_X::Bool = true,
     standardize_G::Bool = true,
@@ -81,52 +80,24 @@ function pglmm_cv(
         )
 
     # Fit lasso model using all observations
-    if nthreads == 1 || length(rho) == 1
-        # Single thread
-        modelfit_full = pglmm(
-            nullmodel_full, 
-            plinkfile,
-            snpfile = snpfile,
-            snpmodel = snpmodel,
-            snpinds = snpinds,
-            geneticrowinds = geneticrowinds,
-            irls_tol = irls_tol,
-            irls_maxiter = irls_maxiter,
-            nlambda = nlambda,
-            rho = rho,
-            verbose = verbose,
-            standardize_X = standardize_X,
-            standardize_G = standardize_G,
-            criterion = criterion,
-            earlystop = earlystop,
-            method = method,
-            upper_bound = upper_bound
-            )
-    else
-        # Parallel threads
-        modelfit_full = Vector{}(undef, length(rho))
-        Threads.@threads for i = 1:length(rho)
-            modelfit_full[i] = pglmm(
-                nullmodel_full, 
-                plinkfile,
-                snpfile = snpfile,
-                snpmodel = snpmodel,
-                snpinds = snpinds,
-                geneticrowinds = geneticrowinds,
-                irls_tol = irls_tol,
-                irls_maxiter = irls_maxiter,
-                nlambda = nlambda,
-                rho = rho[i],
-                verbose = verbose,
-                standardize_X = standardize_X,
-                standardize_G = standardize_G,
-                criterion = criterion,
-                earlystop = earlystop,
-                method = method,
-                upper_bound = upper_bound
-                )
-        end
-    end
+    modelfit_full = pglmm(
+        nullmodel_full, 
+        plinkfile,
+        snpfile = snpfile,
+        snpmodel = snpmodel,
+        snpinds = snpinds,
+        geneticrowinds = geneticrowinds,
+        irls_tol = irls_tol,
+        irls_maxiter = irls_maxiter,
+        nlambda = nlambda,
+        verbose = verbose,
+        standardize_X = standardize_X,
+        standardize_G = standardize_G,
+        criterion = criterion,
+        earlystop = earlystop,
+        method = method,
+        upper_bound = upper_bound
+        )
 
     # Read covariate file
     covdf = CSV.read(covfile, DataFrame)
@@ -206,8 +177,7 @@ function pglmm_cv(
                 irls_tol = irls_tol,
                 irls_maxiter = irls_maxiter,
                 nlambda = nlambda,
-                lambda = [modelfit_full[i].lambda for i in 1:length(rho)],
-                rho = rho,
+                lambda = unique(modelfit.lambda[:, 1]),
                 verbose = verbose,
                 standardize_X = standardize_X,
                 standardize_G = standardize_G,
@@ -230,8 +200,7 @@ function pglmm_cv(
                 irls_tol = irls_tol,
                 irls_maxiter = irls_maxiter,
                 nlambda = nlambda,
-                lambda = [modelfit_full[i].lambda for i in 1:length(rho)],
-                rho = rho,
+                lambda = unique(modelfit.lambda[:, 1]),
                 verbose = verbose,
                 standardize_X = standardize_X,
                 standardize_G = standardize_G,
@@ -340,8 +309,7 @@ function pglmm_cv(
         meanloss = [model_dev(family, b[i][:, j], τV[i], covdf[foldid .== i, coefnames(apply_schema(nullformula, schema(nullformula, covdf)).lhs)], yhat[i][:, j]) for i in 1:nfolds, j in 1:size(yhat[1], 2)] |> 
                         x -> vec(mean(x, dims = 1))
 
-        j = ceil(Int,  argmin(meanloss) / nlambda)
-        jj = argmin(meanloss[((j-1)*nlambda+1):(j*nlambda)])
+        j = argmin(meanloss)
     elseif type_measure == :auc
         # Compute AUC for each fold
         ctrls = [(covdf[foldid .== i, coefnames(apply_schema(nullformula, schema(nullformula, covdf)).lhs)] .== 0) for i in 1:nfolds]
@@ -350,11 +318,10 @@ function pglmm_cv(
         meanloss = [ROCAnalysis.auc(roc(yhat[i][ctrls[i], j], yhat[i][cases[i], j])) for i in 1:nfolds, j in 1:size(yhat[1], 2)] |> 
                         x  -> vec(mean(x, dims = 1))
 
-        j = ceil(Int,  argmax(meanloss)/ nlambda)
-        jj = argmax(meanloss[((j-1)*nlambda+1):(j*nlambda)])
+        j = argmax(meanloss)
     end
 
     # Return lasso path and optimal values of rho and lambda
-    return(path = modelfit_full, rho = TuningParms(rho[j], j), lambda = TuningParms(modelfit_full[j].lambda[jj], jj), meanloss = meanloss)
+    return(path = modelfit_full, lambda_min_index = j, meanloss = meanloss)
 
 end

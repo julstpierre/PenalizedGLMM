@@ -11,7 +11,7 @@ export pglmm_cv
 export pglmm
 
 include("pglmm_null.jl")
-include("pglmm_new.jl")
+include("pglmm.jl")
 include("pglmm_cv.jl")
 include("utils.jl")
 
