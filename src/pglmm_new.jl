@@ -119,10 +119,13 @@ function pglmm(
     p_fX = zeros(k); p_fG = ones(p)
 
     # Sequence of λ
-    if isnothing(nlambda)
+    if isnothing(nlambda) & isnothing(lambda)
         nlambda = !isnothing(ind_D) ? 20 : 100
+    elseif isnothing(nlambda)
+        nlambda = length(lambda)
     end
     λ_seq = !isnothing(lambda) ? lambda : lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, nlambda = nlambda)
+
 
     # Fit penalized model
     path = pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq, nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, method, upper_bound)
@@ -218,7 +221,6 @@ function pglmm_fit(
         dλ = 2 * λ - λ_seq[max(1, i-1)]
 
         # Check strong rule
-        dropzeros!(α), dropzeros!(β)
         compute_strongrule(dλ, p_fX, p_fG, α = α, β = β, X = X, G = G, y = y, μ = μ)
 
         # Initialize objective function and save previous deviance ratio
@@ -348,7 +350,6 @@ function pglmm_fit(
         dλ = λ[1] + λ[2] - last_λ[2]
 
         # Check strong rule
-        dropzeros!(α), dropzeros!(β), dropzeros!(γ)
         compute_strongrule(dλ, last_λ[2], p_fX, p_fG, D, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
 
         # Initialize objective function and save previous deviance ratio
