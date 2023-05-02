@@ -33,7 +33,7 @@ function pglmm(
     irls_tol::T = 1e-7,
     irls_maxiter::Integer = 500,
     nlambda::Union{Nothing, Integer} = nothing,
-    lambda::Union{Nothing, Vector{Vector{T}}} = nothing,
+    lambda::Union{Nothing, Vector{T}} = nothing,
     verbose::Bool = false,
     standardize_X::Bool = true,
     standardize_G::Bool = true,

@@ -33,7 +33,7 @@ function pglmm(
     irls_tol::T = 1e-7,
     irls_maxiter::Integer = 500,
     nlambda::Integer = 100,
-    lambda::Union{Nothing, Vector{Vector{T}}} = nothing,
+    lambda::Union{Nothing, Vector{T}, Vector{Vector{T}}} = nothing,
     rho::Union{Real, AbstractVector{<:Real}} = 0.5,
     verbose::Bool = false,
     standardize_X::Bool = true,
@@ -142,7 +142,7 @@ function pglmm(
     gammas = !isnothing(D) ? [path[j].gammas for j in 1:x] : [nothing for j in 1:x]
 
     # Return coefficients on original scale
-    if isnothing(gammas)
+    if isnothing(gammas[1])
         if !isempty(sX) & !isempty(sG)
             [lmul!(inv(Diagonal(sX)), alphas[j]) for j in 1:x], [lmul!(inv(Diagonal(sG)), betas[j]) for j in 1:x]
         elseif !isempty(sX)
@@ -151,7 +151,7 @@ function pglmm(
             [lmul!(inv(Diagonal(sG)), betas[j]) for j in 1:x]
         end
 
-        [a0[j] .-= vec(muX' * alphas[j] + muG' * betas[j]) for j in 1:x]
+        [a0[j] .-= spmul(muX, alphas[j]) + spmul(muG, betas[j]) for j in 1:x]
     else
         if !isempty(sX) & !isempty(sG)
             [lmul!(inv(Diagonal(sX)), alphas[j]) for j in 1:x], [lmul!(inv(Diagonal(sG)), betas[j]) for j in 1:x], [lmul!(inv(Diagonal(sD .* sG)), gammas[j]) for j in 1:x]
@@ -161,8 +161,8 @@ function pglmm(
             [lmul!(inv(Diagonal(sG)), betas[j]) for j in 1:x], [lmul!(inv(Diagonal(sG)), gammas[j]) for j in 1:x]
         end
 
-        [a0[j] .-= vec(muX' * alphas[j] + muG' * betas[j] - (muD .* muG)' * gammas[j]) for j in 1:x]
-        [alphas[j][ind_D, :] -= muG' * gammas[j] for j in 1:x]; [betas[j] .-= muD' .* gammas[j] for j in 1:x]
+        [a0[j] .-= spmul(muX, alphas[j]) + spmul(muG, betas[j]) - spmul(muD .* muG, gammas[j]) for j in 1:x]
+        [alphas[j][ind_D, :] -= spmul(muG, gammas[j])' for j in 1:x]; [betas[j] .-= muD' .* gammas[j] for j in 1:x]
     end
 
     # Return lasso path
@@ -214,8 +214,8 @@ function pglmm_fit(
 ) where T
 
     # Initialize array to store output for each λ
-    alphas = zeros(length(α), nlambda)
-    betas = zeros(length(β), nlambda)
+    alphas = spzeros(length(α), nlambda)
+    betas = spzeros(length(β), nlambda)
     pct_dev = zeros(T, nlambda)
     dev_ratio = convert(T, NaN)
     fitted_means = zeros(length(y), nlambda)
@@ -288,8 +288,8 @@ function pglmm_fit(
         @assert converged "IRLS failed to converge in $irls_maxiter iterations at λ = $λ"
 
         # Store ouput from irls loop
-        alphas[:, i] = convert(Vector{Float64}, α)
-        betas[:, i] = convert(Vector{Float64}, β)
+        alphas[:, i] = α
+        betas[:, i] = β
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
         fitted_means[:, i] = μ
@@ -298,7 +298,7 @@ function pglmm_fit(
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF) || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(alphas = view(alphas, :, 1:i), betas = view(betas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+    return(alphas = alphas[:, 1:i], betas = betas[:, 1:i], pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
 end
 
 # Function to fit a penalized mixed model
@@ -334,9 +334,9 @@ function pglmm_fit(
 ) where T
 
     # Initialize array to store output for each λ
-    alphas = zeros(length(α), nlambda)
-    betas = zeros(length(β), nlambda)
-    gammas = zeros(length(γ), nlambda)
+    alphas = spzeros(length(α), nlambda)
+    betas = spzeros(length(β), nlambda)
+    gammas = spzeros(length(β), nlambda)
     pct_dev = zeros(T, nlambda)
     dev_ratio = convert(T, NaN)
     fitted_means = zeros(length(y), nlambda)
@@ -409,9 +409,9 @@ function pglmm_fit(
         @assert converged "IRLS failed to converge in $irls_maxiter iterations at λ = $λ"
 
         # Store ouput from irls loop
-        alphas[:, i] = convert(Vector{Float64}, α)
-        betas[:, i] = convert(Vector{Float64}, β)
-        gammas[:, i] = convert(Vector{Float64}, γ)
+        alphas[:, i] = α
+        betas[:, i] = β
+        gammas[:, i] = γ
         dev_ratio = dev/nulldev
         pct_dev[i] = 1 - dev_ratio
         fitted_means[:, i] = μ
@@ -420,7 +420,7 @@ function pglmm_fit(
         earlystop && ((last_dev_ratio - dev_ratio < MIN_DEV_FRAC_DIFF) || pct_dev[i] > MAX_DEV_FRAC) && break
     end
 
-    return(alphas = view(alphas, :, 1:i), betas = view(betas, :, 1:i), gammas = view(gammas, :, 1:i), pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
+    return(alphas = alphas[:, 1:i], betas = betas[:, 1:i], gammas = gammas[:, 1:i], pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
 end
 
 # Function to perform coordinate descent with a lasso penalty
@@ -1003,20 +1003,20 @@ end
 modeltype(::Normal) = "Least Squares GLMNet"
 modeltype(::Binomial) = "Logistic"
 
-mutable struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray, T<:AbstractFloat, C<:SubArray{T, 2, Matrix{T}, Tuple{Base.Slice{Base.OneTo{Int}}, UnitRange{Int}}, true}}
+mutable struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray, T<:AbstractFloat, D<:AbstractArray, E<:AbstractArray}
     family::F
     a0::A                                       # intercept values for each solution
     alphas::B                                   # coefficient values for each solution
-    betas::Union{B, C}                                 
-    gammas::Union{Nothing, C}
+    betas::B                                
+    gammas::Union{Nothing, B}
     null_dev::T                                 # Null deviance of the model
-    pct_dev::A                                  # R^2 values for each solution
-    lambda::A                                   # lamda values corresponding to each solution
+    pct_dev::D                                 # R^2 values for each solution
+    lambda::D                                   # lamda values corresponding to each solution
     npasses::Int                                # actual number of passes over the data for all lamda values
     fitted_values                               # fitted_values
-    y::Union{Vector{Int}, A}                    # eigenvalues vector
-    UD_invUt::B                                 # eigenvectors matrix times diagonal weights matrix
-    τ::A                                        # estimated variance components
+    y::Union{Vector{Int}, D}                    # eigenvalues vector
+    UD_invUt::E                                # eigenvectors matrix times diagonal weights matrix
+    τ::D                                        # estimated variance components
     intercept::Bool                             # boolean for intercept
     rho::Union{Nothing, Real}                   # rho tuninng parameter
 end
@@ -1604,4 +1604,19 @@ function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vec
         # Force a new group to the model
         β[j] = 1; β[j] = 0
     end
+end
+
+# Function to compute product of sparse Matrix A with vector b => x = b' * A
+function spmul(b::Vector{T}, A::SparseMatrixCSC) where T
+    rows, cols, vals = findnz(A)
+    x = zeros(size(A, 2))
+
+    for j = 1:size(A, 2)
+        v = zero(T)
+        for i in findall(cols .== j)
+            @inbounds v += b[rows[i]] * vals[i]
+        end
+        x[j] = v
+    end
+    x
 end
