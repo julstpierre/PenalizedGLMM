@@ -236,7 +236,7 @@ cases = (covdf[testrowinds,:y] .== 1)
 
 
 
-We see that the models based on AIC and BIC resulted in the same higher prediction accuracy, but the model based on BIC has selected 10 times less predictors than the model based on AIC:
+We see that the models based on AIC and BIC resulted in the same prediction accuracy, but the model based on BIC has selected 10 times less predictors than the model based on AIC:
 
 
 ```julia
