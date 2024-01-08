@@ -1,6 +1,9 @@
 data/UKBB/
 data/1000G/1000G*
 data/HGDP+1KG/HGDP+1KG*
+data/grm.txt.gz
+data/HGDP+1KG/grm.txt.gz
+data/Longitudinal/grm.txt.gz
 simulations/results/
 README.ipynb
 GitHub token.txt
