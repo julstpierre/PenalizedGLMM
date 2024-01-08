@@ -2,7 +2,7 @@ module PenalizedGLMM
 
 using GLM
 using LinearAlgebra, SparseArrays
-using CSV, CodecZlib, Distributions, DataFrames, StatsBase, Random, ROCAnalysis
+using CSV, CodecZlib, Distributions, DataFrames, StatsBase, Random, ROCAnalysis, BlockDiagonals
 using SnpArrays
 
 import Base.show

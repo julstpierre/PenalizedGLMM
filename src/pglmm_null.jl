@@ -12,6 +12,8 @@
 - `M::Union{Nothing, Vector{Any}}`: vector containing other similarity matrices if >1 random effect is included.
 - `tol::Float64 = 1e-5 (default)`: tolerance for convergence of PQL estimates.
 - `maxiter::Integer = 500 (default)`: maximum number of iterations for AI-REML algorithm.
+- `tau::Union{Nothing, Vector{T}} = nothing (default)`: Fix the value(s) for variance component(s).
+- `method = :AIREML (default)`: Method to estimate variance components. Alternatively, one can use :AIML for ML estimation.
 """
 function pglmm_null(
     # positional arguments
@@ -30,6 +32,8 @@ function pglmm_null(
     maxiter::Integer = 500,
     tau::Union{Nothing, Vector{T}} = nothing,
     method = :AIREML,
+    idvar::Union{Nothing, Symbol, String} = nothing,
+    reformula::Union{Nothing, FormulaTerm} = nothing,
     kwargs...
     ) where T
 
@@ -148,19 +152,28 @@ function pglmm_null(
         theta0 = fill(var(Ytilde) / K, K)
     end
     W = compute_weights(family, μ, first(theta0))
+    
+    #--------------------------------------------------------------
+    # Longitudinal data
+    #--------------------------------------------------------------
+    L = nothing
+    if !isnothing(idvar)
+        # Create L matrix assuming covdf is sorted by repeated ids
+        L = [ones(sum(covdf[:, idvar] .== unique(covdf[:, idvar])[i]), 1) for i in 1:n] |> x-> BlockDiagonal(x)
+    end
+    
+    Z, D = nothing, nothing
+    if !isnothing(reformula)
+        z = modelmatrix(glm(reformula, covdf, family, link))
+        Z = [z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], :] for i in 1:n]
 
-    # Perform eigen-decomposition for MM algorithm
-    if method == :MM
-        if family == Binomial() && K == 1
-            lambda, U = eigen(V[1])
-            D = [Diagonal(lambda)]
-        elseif family == Binomial() && K == 2
-            lambda, U = eigen(V[1], GRM .* V_D)
-            D = [Diagonal(lambda), Diagonal(ones(n))]
-        end
-        UtX = U' * X
+        # Initialize longitudinal variance components
+        D = Diagonal(repeat(theta0, size(z, 2))) |> x-> Matrix(x)
     end
 
+    #--------------------------------------------------------------
+    # Estimation of variance components
+    #--------------------------------------------------------------
     # Initialize number of steps
     nsteps = 1
 
@@ -169,24 +182,20 @@ function pglmm_null(
 
         # Update variance components estimates
         if isnothing(tau)
-            if method == :AIREML
-                fit0 = glmmfit_ai(family, theta0, V, X, Ytilde, W, K)
-                if nsteps == 1
-                    theta = theta0 + n^-1 * theta0.^2 .* fit0.S
-                else
-                    theta = max.(theta0 + fit0.AI \ fit0.S, 10^-6 * var(Ytilde))
-                end
-
-                # Update working response
-                fit = glmmfit_ai(family, theta, V, X, Ytilde, W, K, fit_only = true)
-
-            elseif method == :MM
-                fit0 = glmmfit_mm(family, theta0, V, D, U, UtX, Ytilde, W, K)
-                theta = max.(fit0.theta, 10^-6 * var(Ytilde))
-
-                # Update working response
-                fit = glmmfit_mm(family, theta, V, D, U, UtX, Ytilde, W, K, fit_only = true)
+            fit0 = glmmfit_ai(family, theta0, V, Z, D, X, Ytilde, W, K)
+            if nsteps == 1
+                theta = theta0 + n^-1 * theta0.^2 .* fit0.S
+            else
+                theta = max.(theta0 + fit0.AI \ fit0.S, 10^-6 * var(Ytilde))
             end
+
+            # Update working response
+            fit = glmmfit_ai(family, theta, V, Z, D, X, Ytilde, W, K, fit_only = true)
+        end
+
+        # Update D matrix
+        if !isnothing(D)
+            D = 
         end
 
         # Update working response
@@ -231,6 +240,8 @@ function glmmfit_ai(
     family::UnivariateDistribution,
     theta::Vector{Float64}, 
     V::Vector{Any},
+    Z::Nothing,
+    D::Nothing,
     X::Matrix{Float64},
     Ytilde::Vector{Float64},
     W::Diagonal{Float64, Vector{Float64}},
@@ -269,45 +280,75 @@ function glmmfit_ai(
     end
 end
 
-function glmmfit_mm(
-    ::Binomial,
+function glmmfit_ai(
+    family::UnivariateDistribution,
     theta::Vector{T}, 
     V::Vector{Any},
-    D::Vector{Diagonal{T, Vector{T}}},
-    U::Matrix{T},
-    UtX::Matrix{T},
+    Z::Vector{Matrix{T}},
+    D::Matrix{T},
+    X::Matri{T},
     Ytilde::Vector{T},
     W::Diagonal{T, Vector{T}},
     K::Integer;
     fit_only::Bool = false
     ) where T
+
+    # Define Σ
+    m = length(Z)
+    ZDZt = [Z[i] * D * Z[i]' for i in 1:m] |> x->BlockDiagonal(x)
+    τV = family == Normal() ? cholesky(sum(theta[2:end] .* V[2:end])) : cholesky(sum(theta .* V))
+    R = ZDZt + W^-1
+    # LτVLt = L * tauV * L'
+    # Σ = R + LτVLt
+
+    # Calculate inverse of R
+    R_inv = inv(R)
+    LR_inv = [sum(blocks(R_inv)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonal(x)
+    LR_invL = [sum(blocks(LR_inv)[i]) for i in 1:m] |> x-> Diagonal(x)
+    LR_invX = LR_inv * X
+    XR_inv = X' * R_inv 
+
+    # Define inverse of Σ using matrix inversion lemma
+    τV_inv = inv(τV)
+    Σ_L = cholesky(LR_invL + τV_inv)
+    XΣ_invX = XR_inv * X - LR_invX' * (Σ_L \ LR_invX)
+    XΣ_invYtilde = XR_inv * Ytilde - LR_invX' * (Σ_L \ (LR_inv * Ytilde))
     
-    # Define U' * Ytilde
-    UtYtilde = U' * Ytilde
-
-    # Define inverse of Σ
-    Σ = sum(theta .* D) + U' * W^-1 * U
-    XΣ_inv = UtX' / Σ
-    XΣ_invX = XΣ_inv * UtX
-    covXΣ_inv = XΣ_invX \ XΣ_inv
-
-    α = covXΣ_inv * UtYtilde
-    PY = Σ \ UtYtilde - XΣ_inv' * α
-    η = Ytilde - W^-1 * U * PY
+    # Estimate α
+    α = XΣ_invX \ XΣ_invYtilde
+    r = Ytilde - X * α
+    PY = R_inv * r - LR_inv' * (Σ_L \ (LR_inv * r))
+    η = Ytilde - W^-1 * PY
 
     if fit_only
         return(α = α, η = η)
     else
-        # MM updates
-        Utb = sum(theta .* D)^-1 * (U' * η - UtX * α)
-        Σ_invΛ = D[1] / Σ
-        theta[1] *= sqrt(dot(Utb, D[1] , Utb) / tr(Σ_invΛ))
+        # Compute useful quantities
+        XΣ_invL = XR_inv * L - LR_invX' * (Σ_L \ LR_invL)
+        LΣ_invL = LR_inv * L - LR_invL' * (Σ_L \ LR_invL)
+        LPL = LΣ_invL - XΣ_invL' * (XΣ_invX \ XΣ_invL)
+        LPY = L' * PY
 
-        if K == 2
-            Σ_inv = inv(Σ)
-            theta[2] *= sqrt(dot(Utb, Utb) / tr(Σ_inv))
+        # Define the score of the restricted quasi-likelihood with respect to variance components
+        VLPY = [V[k] * LPY for k in 1:K]
+        LPLVLPY = [LPL * VLPY[k] for k in 1:K]
+        S = [LPY' * VLPY[k] - sum(LPL .* V[k]) for k in 1:K] # sum(LΣ_invL .* V[k]) for ML
+
+        # Define the average information matrix AI
+        AI = Array{Float64}(undef, K, K)
+        for k in 1:K
+            for l in k:K
+                AI[k, l] = VLPY[k]' * LPLVLPY[l]
+            end
         end
+        AI = Symmetric(AI)
 
-        return(theta = theta, α = α, η = η)
+        # Update the covariance matrix D
+        DZt = [D * Z[i]' for i in 1:m] |> x->BlockDiagonal(x)
+        a = DZt * PY
+        ZR_invZ = [Z[i]' * blocks(R_inv)[i] * Z[i] for i in 1:m] |> x-> sum(x)
+        LR_invZ = [blocks(LR_inv)[i] * Z[i] for i in 1:m] |> x->BlockDiagonal(x)
+
+        return(AI = AI, S = S, α = α, η = η)
     end
 end
