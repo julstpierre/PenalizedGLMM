@@ -21,6 +21,7 @@ function pglmm_null(
     covfile::AbstractString,
     grmfile::AbstractString;
     # keyword arguments
+    GRM::Union{Nothing, Matrix{T}, BlockDiagonal{T, Matrix{T}}} = nothing,
     covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     grminds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     family::UnivariateDistribution = Binomial(),
@@ -48,8 +49,9 @@ function pglmm_null(
     end 
 
     # read grm file
-    GRM = open(GzipDecompressorStream, grmfile, "r") do stream
-        Symmetric(Matrix(CSV.read(stream, DataFrame)))
+    if isnothing(GRM)
+        GRM = open(GzipDecompressorStream, grmfile, "r") do stream
+            Symmetric(Matrix(CSV.read(stream, DataFrame)))
     end
 
     if !isnothing(grminds)

@@ -8,7 +8,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.1", "10000", "0.01", "0.5", "true", "", "bin"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.2", "10000", "0.01", "0.5", "true", "../", "bin"] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -38,10 +38,10 @@ c_ = parse(Float64, ARGS_[8])
 hier = parse(Bool, ARGS_[9])
 
 # Directory where source data is located
-datadir = ARGS_[11]
+datadir = ARGS_[10]
 
 # Simulate Logistic() or Normal() distribution
-dist = ARGS_[12] == "bin" ? Logistic() : Normal()
+dist = ARGS_[11] == "bin" ? Logistic() : Normal()
 
 # ------------------------------------------------------------------------
 # Load the covariate file
@@ -58,7 +58,7 @@ dat = @chain CSV.read(datadir * "HGDP+1KG/covars.csv", DataFrame) begin
     stack([:AGE1, :AGE2, :AGE3, :AGE4, :AGE5], value_name = :AGE)
     sort([:IID, :AGE])
     rightjoin(samples, on = [:IID, :FID], order = :right)
-    @select!(:FID, :IID, :POP, :SEX, :AGE, :related, :related_exclude)
+    @select!(:FID, :IID, :POP, :SEX, :AGE, :related, :related_exclude, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
 end
 
 # Randomly sample subjects by POP for training and test sets
@@ -133,7 +133,19 @@ rowmask, colmask = inds, [col in snp_inds for col in 1:size(_HGDP1KG, 2)]
 SnpArrays.filter(datadir * "HGDP+1KG/HGDP+1KG", rowmask, colmask, des = "geno")
 
 # Read GRM
+grm_ids = CSV.read(datadir * "HGDP+1KG/grm_ids.txt", DataFrame; header = false)[:, 1]
+grminds = [findfirst(x -> x == uniquedat.IID[i], grm_ids) for i in 1:n]
 
+GRM = open(GzipDecompressorStream, datadir * "HGDP+1KG/grm.txt.gz", "r") do stream
+        Matrix(CSV.read(stream, DataFrame))[grminds, grminds]
+end
+
+# Make sure grm is posdef
+xi = 1e-4
+while !isposdef(GRM)
+    GRM = GRM + xi * Diagonal(ones(n))
+    xi = 2 * xi
+end
 
 # GEI similarity matrix
 D = uniquedat.SEX
@@ -196,12 +208,7 @@ println(combine(groupby(final_dat, :POP), :y => mean))
 #----------------------
 # Write csv files
 #---------------------
-# Add PCs to covariate file and write to CSV
-final_dat.PC1 = L' * PCs[:, 1]; final_dat.PC2 = L' * PCs[:, 2]
-final_dat.PC3 = L' * PCs[:, 3]; final_dat.PC4 = L' * PCs[:, 4]
-final_dat.PC5 = L' * PCs[:, 5]; final_dat.PC6 = L' * PCs[:, 6]
-final_dat.PC7 = L' * PCs[:, 7]; final_dat.PC8 = L' * PCs[:, 8]
-final_dat.PC9 = L' * PCs[:, 9]; final_dat.PC10 = L' * PCs[:, 10]
+# Write covariate file to CSV
 CSV.write("covariate.txt", final_dat)
 
 # Convert simulated effect for each SNP on original genotype scale
