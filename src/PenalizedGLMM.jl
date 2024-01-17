@@ -4,6 +4,7 @@ using GLM
 using LinearAlgebra, SparseArrays
 using CSV, CodecZlib, Distributions, DataFrames, StatsBase, Random, ROCAnalysis, BlockDiagonals
 using SnpArrays
+using RCall
 
 import Base.show
 export pglmm_null

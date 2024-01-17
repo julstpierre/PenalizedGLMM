@@ -32,3 +32,23 @@ function Umul!(U::AbstractMatrix{T}, X::AbstractMatrix{T}; K::Integer = 1000) wh
     X[:, (lastt + K):p] = mul!(b, U', view(X, :, (lastt + K):p))
     return(X)
 end
+
+# Read sparse GRM from .rds object and convert into BlockDiagonal matrix
+function read_sparse_grm(grmfile::AbstractString, indvs::AbstractVector)
+    GRM_sp = sparse(rcopy(R"as.matrix(readRDS($grmfile))"))
+    GRM_ids = rcopy(R"colnames(readRDS($grmfile))")
+    grmrowinds = indexin(intersect(GRM_ids, indvs), GRM_ids)
+
+    # Identify blocks from sparse GRM using only training subjects
+    rows, cols, vals = findnz(GRM_sp[grmrowinds, grmrowinds])
+    ix = 0
+    V = Matrix{Float64}[]
+
+    while last(ix) != last(rows)
+        ix = rows[findall(cols .== last(ix) + 1)]
+        push!(V, reshape(vals[findall(!isnothing, indexin(rows, ix))], length(ix), length(ix)))
+    end
+
+    return(BlockDiagonal(V))
+
+end

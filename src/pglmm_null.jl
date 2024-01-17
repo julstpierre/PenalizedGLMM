@@ -18,9 +18,9 @@
 function pglmm_null(
     # positional arguments
     nullformula::FormulaTerm,
-    covfile::AbstractString,
-    grmfile::AbstractString;
+    covfile::AbstractString;
     # keyword arguments
+    grmfile::Union{Nothing, AbstractString} = nothing,
     GRM::Union{Nothing, Matrix{T}, BlockDiagonal{T, Matrix{T}}} = nothing,
     covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     grminds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
@@ -52,6 +52,7 @@ function pglmm_null(
     if isnothing(GRM)
         GRM = open(GzipDecompressorStream, grmfile, "r") do stream
             Symmetric(Matrix(CSV.read(stream, DataFrame)))
+        end
     end
 
     if !isnothing(grminds)
@@ -195,10 +196,10 @@ function pglmm_null(
             fit = glmmfit_ai(family, theta, V, Z, D, X, Ytilde, W, K, fit_only = true)
         end
 
-        # Update D matrix
-        if !isnothing(D)
-            D = 
-        end
+        # # Update D matrix
+        # if !isnothing(D)
+        #     D = 
+        # end
 
         # Update working response
         α, η = fit.α, fit.η
@@ -288,7 +289,7 @@ function glmmfit_ai(
     V::Vector{Any},
     Z::Vector{Matrix{T}},
     D::Matrix{T},
-    X::Matri{T},
+    X::Matrix{T},
     Ytilde::Vector{T},
     W::Diagonal{T, Vector{T}},
     K::Integer;
