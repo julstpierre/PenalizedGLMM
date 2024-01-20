@@ -196,7 +196,7 @@ function pglmm_null(
 
         # Update variance components estimates
         if isnothing(tau)
-            fit0 = glmmfit_ai(family, theta0, V, Z, D, X, Ytilde, W, K)
+            fit0 = glmmfit_ai(family, theta0, V, Z, L, D, X, Ytilde, W, K)
             if nsteps == 1
                 theta = theta0 + n^-1 * theta0.^2 .* fit0.S
             else
@@ -204,7 +204,7 @@ function pglmm_null(
             end
 
             # Update working response
-            fit = glmmfit_ai(family, theta, V, Z, D, X, Ytilde, W, K, fit_only = true)
+            fit = glmmfit_ai(family, theta, V, Z, L, D, X, Ytilde, W, K, fit_only = true)
         end
 
         # Update working response
@@ -214,8 +214,8 @@ function pglmm_null(
         Ytilde = η + dg(μ) .* (y - μ)
         
         # Update D
-        Dnew = !isnothing(D) ? fit0.D : nothing
-        psi, psi0 = !isnothing(D) ? [vec(Dnew), vec(D)] : [0,0]
+        D_new = !isnothing(D) ? fit0.D : nothing
+        psi, psi0 = !isnothing(D) ? [vec(D_new), vec(D)] : [0,0]
         
         # Check termination conditions
         if  2 * maximum(vcat(abs.(α - α_0) ./ (abs.(α) + abs.(α_0) .+ tol), abs.(theta - theta0) ./ (abs.(theta) + abs.(theta0) .+ tol), abs.(psi - psi0) ./ (abs.(psi) + abs.(psi0) .+ tol))) < tol || nsteps >= maxiter
@@ -240,7 +240,7 @@ function pglmm_null(
                    X = X,
                    ind_E = ind_E,
                    family = family,
-                   D = Dnew)
+                   D = D_new)
             break
         else
             theta0 = theta
@@ -257,6 +257,7 @@ function glmmfit_ai(
     theta::Vector{T}, 
     V::Vector{Any},
     Z::Nothing,
+    L::Nothing,
     D::Nothing,
     X::Matrix{T},
     Ytilde::Vector{T},
@@ -301,6 +302,7 @@ function glmmfit_ai(
     theta::Vector{T}, 
     V::Vector{Any},
     Z::Vector{Matrix{T}},
+    L::BlockDiagonal{T, Matrix{T}},
     D::Matrix{T},
     X::Matrix{T},
     Ytilde::Vector{T},
