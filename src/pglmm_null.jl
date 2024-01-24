@@ -343,7 +343,8 @@ function glmmfit_ai(
         # Define the score of the restricted quasi-likelihood with respect to variance components
         VLPY = [V[k] * LPY for k in 1:K]
         LPLVLPY = [LPL * VLPY[k] for k in 1:K]
-        S = [LPY' * VLPY[k] - sum(LPL .* Matrix(V[k])) for k in 1:K] # sum(LΣ_invL .* Matrix(V[k])) for ML
+        # S = [LPY' * VLPY[k] - sum(LPL .* Matrix(V[k])) for k in 1:K]
+        S = [LPY' * VLPY[k] - sum(Matrix(LΣ_invL) .* Matrix(V[k])) for k in 1:K]
 
         # Define the average information matrix AI
         AI = Array{T}(undef, K, K)
@@ -362,6 +363,7 @@ function glmmfit_ai(
         
         ZR_invZ = [Z[i]' * blocks(R_inv)[i] * Z[i] for i in 1:m] |> x-> sum(x)
         LR_invZ = [blocks(LR_inv)[i] * Z[i] for i in 1:m] |> x-> reduce(vcat, x)
+
         M = ZR_invZ - LR_invZ' * Σ_L_inv * LR_invZ |> x-> cholesky(Symmetric(x))
         
         D_new = inv(M.U) * sqrt(M.U * aat * M.L) * inv(M.L)
