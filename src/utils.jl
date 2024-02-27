@@ -36,12 +36,15 @@ end
 # Convert sparse matrix into BlockDiagonal matrix
 function BlockDiagonal(A::SparseMatrixCSC)
     rows, cols, vals = findnz(A)
-    ix = 0
+    i = 1
     V = Matrix{Float64}[]
 
-    while last(ix) != last(rows)
-        ix = rows[findall(cols .== last(ix) + 1)]
-        push!(V, reshape(vals[findall(!isnothing, indexin(rows, ix))], length(ix), length(ix)))
+    while i <= last(cols)
+        ix = rows[findall(cols .== i)]
+        iy = findall(!isnothing, indexin(rows, ix))
+        V_ = reshape(vals[iy], length(ix), Int(length(iy)/length(ix)))
+        push!(V, V_)
+        i += size(V_, 2)
     end
     
     BlockDiagonal(V)
@@ -58,4 +61,15 @@ function read_sparse_grm(grmfile::AbstractString, indvs::AbstractVector)
 
     return(GRM, GRM_ids[grmrowinds])
 
+end
+
+# Function to perform half-vectorization operator
+function vech(A::AbstractMatrix{T}) where T
+    m = LinAlg.checksquare(A)
+    v = Vector{T}((m*(m+1))>>1)
+    k = 0
+    for j = 1:m, i = j:m
+        @inbounds v[k += 1] = A[i,j]
+    end
+    return v
 end

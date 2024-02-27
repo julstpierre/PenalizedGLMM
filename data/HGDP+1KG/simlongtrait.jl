@@ -8,7 +8,8 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.2", "10000", "0.01", "0.5", "true", "../", "bin"] : ARGS
+# const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.2", "10000", "0.01", "0.5", "true", "../"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0", "0", "0", "0", "0.2", "10000", "0.01", "0.5", "true", "../"] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -40,9 +41,6 @@ hier = parse(Bool, ARGS_[9])
 # Directory where source data is located
 datadir = ARGS_[10]
 
-# Simulate Logistic() or Normal() distribution
-dist = ARGS_[11] == "bin" ? Logistic() : Normal()
-
 # ------------------------------------------------------------------------
 # Load the covariate file
 # ------------------------------------------------------------------------
@@ -56,9 +54,10 @@ dat = @chain CSV.read(datadir * "HGDP+1KG/covars.csv", DataFrame) begin
     @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE1 = round.(rand(Normal(50, 5), length(:ind)), digits = 0))
     @transform!(:AGE2 = :AGE1 .+ 1, :AGE3 = :AGE1 .+ 2, :AGE4 = :AGE1 .+ 3, :AGE5 = :AGE1 .+ 4)
     stack([:AGE1, :AGE2, :AGE3, :AGE4, :AGE5], value_name = :AGE)
+    @transform(:EXP = rand(Normal(), length(:ind)))
     sort([:IID, :AGE])
     rightjoin(samples, on = [:IID, :FID], order = :right)
-    @select!(:FID, :IID, :POP, :SEX, :AGE, :related, :related_exclude, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
+    @select!(:FID, :IID, :POP, :SEX, :AGE, :EXP, :related, :related_exclude, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
 end
 
 # Randomly sample subjects by POP for training and test sets
@@ -72,7 +71,7 @@ dat.train = [dat.IID[i] in train_ids || dat.related[i] for i in 1:size(dat, 1)]
 
 # Create dataset with unique IDs
 uniquedat = unique(dat, :IID)
-n, m = nrow(uniquedat), nrow(dat)
+m, n= nrow(uniquedat), nrow(dat)
 
 #-------------------------------------------------------------------------
 # Load genotype Data
@@ -134,18 +133,23 @@ SnpArrays.filter(datadir * "HGDP+1KG/HGDP+1KG", rowmask, colmask, des = "geno")
 
 # Read GRM
 grm_ids = CSV.read(datadir * "HGDP+1KG/grm_ids.txt", DataFrame; header = false)[:, 1]
-grminds = [findfirst(x -> x == uniquedat.IID[i], grm_ids) for i in 1:n]
+grminds = [findfirst(x -> x == uniquedat.IID[i], grm_ids) for i in 1:m]
 
 GRM = open(GzipDecompressorStream, datadir * "HGDP+1KG/grm.txt.gz", "r") do stream
         Matrix(CSV.read(stream, DataFrame))[grminds, grminds]
 end
 
 # Make sure grm is posdef
-xi = 1e-4
-while !isposdef(GRM)
-    GRM = GRM + xi * Diagonal(ones(n))
-    xi = 2 * xi
+function posdef(GRM::Matrix{T}) where T
+    xi, n = 1e-4, size(GRM, 1)
+    while !isposdef(GRM)
+        GRM = GRM + xi * Diagonal(ones(n))
+        xi = 2 * xi
+    end
+    
+    return GRM
 end
+GRM = posdef(GRM)
 
 # GEI similarity matrix
 D = uniquedat.SEX
@@ -162,8 +166,8 @@ GRM_D = GRM .* V_D
 POP = [dat.POP .== unique(dat.POP)[i] for i in 1:length(unique(dat.POP))] |> x-> mapreduce(permutedims, vcat, x)'
 pi0 = POP * rand(Uniform(0.1, 0.9), size(POP, 2))
 
-# Simulate Logistic or Normal error
-e = rand(dist, size(dat, 1))
+# Simulate Normal error
+e = rand(Normal(), size(dat, 1))
 
 # Variance components
 sigma2_e = var(e)
@@ -185,25 +189,25 @@ W[s_] .= sigma2_GEI/length(s_)
 gamma = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate random effects
-a = rand(MvNormal([0.25 0.3; 0.3 0.5]), n)'
-b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
-b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(size(dat, 1))
+a = rand(MvNormal([2 -0.5; -0.5 1]), m)'
+b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(m)
+b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(m)
 
 # Create L matrix
-L = [dat.IID .== unique(dat.IID)[i] for i in 1:n] |> x-> mapreduce(permutedims, vcat, x) |> x-> Float64.(x)
-a_ = sum((L' * a) .* hcat(ones(m), dat.AGE), dims=2)
+L = [dat.IID .== unique(dat.IID)[i] for i in 1:m] |> x-> mapreduce(permutedims, vcat, x) |> x-> Float64.(x)
+a_ = sum((L' * a) .* hcat(dat.AGE /std(dat.AGE), dat.EXP), dims=2)
 
 # Simulate outcome
 logit(x) = log(x / (1 - x))
 final_dat = @chain dat begin
-    @transform!(:logit_pi = vec(logit.(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE .- mean(:AGE))/ 10 + L' * (G * beta) + (L' * (G * gamma)) .* :SEX + a_ + L' * b + e))
-    @transform(:y = dist == Logistic() ? Int.(:logit_pi .> quantile(:logit_pi, 1 - prev)) : :logit_pi)
-    select!(Not([:logit_pi]))
+    @transform!(:y = vec(logit.(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE .- mean(:AGE))/ 10 + L' * (G * beta) + (L' * (G * gamma)) .* :SEX + a_ + L' * b + e))
+    @transform(:ybin = Int.(:y .> quantile(:y, 1 - prev)))
 end
 
 # Prevalence by Population
 println("Mean of y is ", round(mean(final_dat.y), digits = 3))
-println(combine(groupby(final_dat, :POP), :y => mean))
+println("Prevalence is ", round(mean(final_dat.ybin), digits = 3))
+println(combine(groupby(final_dat, :POP), :ybin => mean))
     
 #----------------------
 # Write csv files

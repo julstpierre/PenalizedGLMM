@@ -30,11 +30,14 @@ function pglmm_null(
     GEIkin::Bool = true,
     M::Union{Nothing, Vector{Any}} = nothing,
     tol::T = 1e-5,
-    maxiter::Integer = 500,
+    maxiter::Integer = 1000,
     tau::Union{Nothing, Vector{T}} = nothing,
     method = :AIREML,
     idvar::Union{Nothing, Symbol, String} = nothing,
     reformula::Union{Nothing, FormulaTerm} = nothing,
+    verbose::Bool = false,
+    standardize_Z::Bool = false,
+    standardize_X::Bool = false,
     kwargs...
     ) where T
 
@@ -42,11 +45,8 @@ function pglmm_null(
     # Read input files
     #--------------------------------------------------------------
     # read covariate file
-    covdf = CSV.read(covfile, DataFrame)
-
-    if !isnothing(covrowinds)
-        covdf = covdf[covrowinds,:]
-    end 
+    covdf = !isnothing(covrowinds) ? CSV.read(covfile, DataFrame)[covrowinds,:] : CSV.read(covfile, DataFrame)
+    n = size(covdf, 1)
 
     # read grm file
     if !isnothing(grmfile)
@@ -55,19 +55,18 @@ function pglmm_null(
         end
     end
 
+    # Reorder GRM
     if !isnothing(grminds)
         GRM = GRM[grminds, grminds] |> x->Symmetric(x)
     end
 
-    # Initialize number of subjects and genetic predictors
-    n = size(GRM, 1)
-
     # Make sure grm is posdef
     xi = 1e-4
     while !isposdef(Matrix(GRM))
-        GRM = GRM + xi * Diagonal(ones(n))
+        GRM = GRM + xi * Diagonal(ones(size(GRM, 1)))
         xi = 2 * xi
     end
+    m = size(GRM, 1)
 
     #--------------------------------------------------------------
     # Define link and variance functions
@@ -111,7 +110,10 @@ function pglmm_null(
     
     # Define the design matrix
     X = modelmatrix(nullfit)
-    X_nodup = Matrix(unique(DataFrame([covdf[:, idvar] X], :auto), 1)[:, 2:end])
+    if standardize_X
+            X = all(X[:, 1] .== 1) ? hcat(ones(n), X[:, 2:end] ./ sqrt.(diag(cov(X[:, 2:end])))') : X ./ sqrt.(diag(cov(X)))'
+    end
+    X_nodup = !isnothing(idvar) ? Matrix(unique(DataFrame([covdf[:, idvar] X], :auto), 1)[:, 2:end]) : X
     
     # Obtain initial values for α
     α_0 = GLM.coef(nullfit)
@@ -173,16 +175,22 @@ function pglmm_null(
     L = nothing
     if !isnothing(idvar)
         # Create L matrix assuming covdf is sorted by repeated ids
-        L = [ones(sum(covdf[:, idvar] .== unique(covdf[:, idvar])[i]), 1) for i in 1:n] |> x-> BlockDiagonal(x)
+        L = [ones(sum(covdf[:, idvar] .== unique(covdf[:, idvar])[i]), 1) for i in 1:m] |> x-> BlockDiagonal(x)
     end
     
     Z, D = nothing, nothing
     if !isnothing(reformula)
         z = modelmatrix(glm(reformula, covdf, family, link))
-        Z = [z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], :] for i in 1:n]
 
         # Initialize longitudinal variance components
-        D = Diagonal(repeat([first(theta0)], size(z, 2))) |> x-> Matrix(x)
+        D = Matrix(Diagonal(ones(size(z, 2))))
+        Γ = cholesky(D).L
+
+        # Standardize z
+        if standardize_Z
+            z = all(z[:, 1] .== 1) ? hcat(ones(n), z[:, 2:end] ./ sqrt.(diag(cov(z[:, 2:end])))') : z ./ sqrt.(diag(cov(z)))'
+        end
+        Z = [z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], :] for i in 1:m]
     end
 
     #--------------------------------------------------------------
@@ -190,35 +198,37 @@ function pglmm_null(
     #--------------------------------------------------------------
     # Initialize number of steps
     nsteps = 1
+    prev_obj = Inf
+
+    if isnothing(tau)
+            fit = glmmfit_ai(family, theta0, V, Z, L, D, X, Ytilde, W, K)
+            theta0 = theta0 + n^-1 * theta0.^2 .* fit.S
+            theta0 = max.(theta0 + fit.AI \ fit.S, 10^-6 * var(Ytilde))
+    end
 
     # Iterate until convergence
     while true
 
         # Update variance components estimates
         if isnothing(tau)
-            fit0 = glmmfit_ai(family, theta0, V, Z, L, D, X, Ytilde, W, K)
-            if nsteps == 1
-                theta = theta0 + n^-1 * theta0.^2 .* fit0.S
-            else
-                theta = max.(theta0 + fit0.AI \ fit0.S, 10^-6 * var(Ytilde))
-            end
-
-            # Update working response
-            fit = glmmfit_ai(family, theta, V, Z, L, D, X, Ytilde, W, K, fit_only = true)
+            fit = glmmfit_ai(family, theta0, V, Z, L, D, X, Ytilde, W, K)
+            theta = max.(theta0 + fit.AI \ fit.S, 10^-6 * var(Ytilde))
         end
 
+        # Update D
+        D_new = !isnothing(D) ? glmmfit_ai(family, theta, V, Z, L, D, X, Ytilde, W, K, update_D = true) : nothing
+        psi, psi0 = !isnothing(D) ? [vec(D_new), vec(D)] : [0,0]
+
         # Update working response
+        fit = glmmfit_ai(family, theta, V, Z, L, D, X, Ytilde, W, K, fit_only = true)
         α, η = fit.α, fit.η
         μ = updateμ(family, η, link)
         W = compute_weights(family, μ, first(theta))
         Ytilde = η + dg(μ) .* (y - μ)
         
-        # Update D
-        D_new = !isnothing(D) ? fit0.D : nothing
-        psi, psi0 = !isnothing(D) ? [vec(D_new), vec(D)] : [0,0]
-        
         # Check termination conditions
-        if  2 * maximum(vcat(abs.(α - α_0) ./ (abs.(α) + abs.(α_0) .+ tol), abs.(theta - theta0) ./ (abs.(theta) + abs.(theta0) .+ tol), abs.(psi - psi0) ./ (abs.(psi) + abs.(psi0) .+ tol))) < tol || nsteps >= maxiter
+        Δ = maximum(vcat(abs.(α - α_0) ./ (abs.(α) + abs.(α_0) .+ tol), abs.(theta - theta0) ./ (abs.(theta) + abs.(theta0) .+ tol), abs.(psi - psi0) ./ (abs.(psi) + abs.(psi0) .+ tol)))
+        if  2 * Δ < tol || nsteps >= maxiter
             
             # Check if maximum number of iterations was reached
             converged = ifelse(nsteps < maxiter, true, false)
@@ -247,11 +257,15 @@ function pglmm_null(
             α_0 = α
             D = D_new
             nsteps += 1
+            verbose && family == Normal() && println("nsteps = $nsteps; D = $D; φ = $(first(theta)); τ = $(theta[2:end]); Δ = $Δ")
+            verbose && family == Binomial() && println("nsteps = $nsteps; D = $D; τ = $theta; Δ = $Δ")
+        
         end
     end
 
 end
 
+# AI-REML algorithm
 function glmmfit_ai(
     family::UnivariateDistribution,
     theta::Vector{T}, 
@@ -267,7 +281,8 @@ function glmmfit_ai(
     ) where T
 
     # Define inverse of Σ
-    Σ = family == Normal() ? cholesky(W^-1 + sum(theta[2:end] .* V[2:end])) : cholesky(W^-1 + sum(theta .* V))
+    Σ = family == Normal() ? W^-1 + sum(theta[2:end] .* V[2:end]) : W^-1 + sum(theta .* V)
+    if !(Σ isa BlockDiagonal) Σ = cholesky(Σ) end
     XΣ_inv = X' / Σ
     XΣ_invX = Symmetric(XΣ_inv * X) |> x-> cholesky(x)
     covXΣ_inv = XΣ_invX \ XΣ_inv
@@ -282,7 +297,7 @@ function glmmfit_ai(
         # Define the score of the restricted quasi-likelihood with respect to variance components
         VPY = [V[k] * PY for k in 1:K]
         PVPY = [Σ \ VPY[k] - XΣ_inv' * covXΣ_inv * VPY[k] for k in 1:K]
-        S = [PY' * VPY[k] - sum(inv(Σ) .* V[k]) - sum(XΣ_inv .* (covXΣ_inv * V[k])) for k in 1:K]
+        S = [PY' * VPY[k] - sum(Matrix(inv(Σ)) .* Matrix(V[k])) - sum(XΣ_inv .* (covXΣ_inv * V[k])) for k in 1:K]
 
         # Define the average information matrix AI
         AI = Array{Float64}(undef, K, K)
@@ -297,6 +312,7 @@ function glmmfit_ai(
     end
 end
 
+# AI-REML for repeated measurements with random slopes
 function glmmfit_ai(
     family::UnivariateDistribution,
     theta::Vector{T}, 
@@ -308,7 +324,8 @@ function glmmfit_ai(
     Ytilde::Vector{T},
     W::Diagonal{T, Vector{T}},
     K::Integer;
-    fit_only::Bool = false
+    fit_only::Bool = false,
+    update_D::Bool = false
     ) where T
 
     # Calculate inverse of R and usefull quantities
@@ -333,41 +350,66 @@ function glmmfit_ai(
 
     if fit_only
         return(α = α, η = η)
-    else
-        # Compute useful quantities
-        XΣ_invL = LR_invX' - LR_invX' * (Σ_L_inv * LR_invL)
-        LΣ_invL = LR_invL - LR_invL * (Σ_L_inv * LR_invL)
-        LPL = LΣ_invL - XΣ_invL' * (XΣ_invX \ XΣ_invL)
-        LPY = L' * PY
+    elseif update_D
+        # Update the covariance matrix D
+        DZ = [D * Z[i]' for i in 1:m] |> x->BlockDiagonal(x)
+        a = DZ * PY
+        a_ = [a[((i-1)*size(Z[1], 2)+1):i*size(Z[1], 2)] for i in 1:m]
+        aat = [a_[i] * a_[i]' for i in 1:m] |> x-> sum(x)
 
+        ZR_invZ = [Z[i]' * blocks(R_inv)[i] * Z[i] for i in 1:m] |> x-> sum(x)
+        LR_invZ = [blocks(LR_inv)[i] * Z[i] for i in 1:m] |> x-> reduce(vcat, x)
+
+        M = ZR_invZ - LR_invZ' * Σ_L_inv * LR_invZ |> x-> cholesky(Symmetric(x))
+        D = inv(M.U) * sqrt(M.U * aat * M.L) * inv(M.L)
+
+        return(D = D)
+    else
+        # Update variance components using AI-(RE)ML algorithm
+        LΣ_invL = LR_invL - LR_invL * Σ_L_inv * LR_invL
+        LΣ_invX = LR_invX - LR_invL * Σ_L_inv * LR_invX
+        LPL = LΣ_invL - LΣ_invX * (XΣ_invX \ LΣ_invX')
+        LPY = L'PY
+        VLPY = family == Normal() ? pushfirst!([V[k] * LPY for k in 2:K], PY) : [V[k] * LPY for k in 1:K]
+        
         # Define the score of the restricted quasi-likelihood with respect to variance components
-        VLPY = [V[k] * LPY for k in 1:K]
-        LPLVLPY = [LPL * VLPY[k] for k in 1:K]
-        # S = [LPY' * VLPY[k] - sum(LPL .* Matrix(V[k])) for k in 1:K]
-        S = [LPY' * VLPY[k] - sum(Matrix(LΣ_invL) .* Matrix(V[k])) for k in 1:K]
+        if family == Normal()
+
+            R_inv2 = R_inv*R_inv
+            LR_inv2 = [sum(blocks(R_inv2)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonal(x)
+            LR_inv2L = [sum(blocks(LR_inv2)[i]) for i in 1:m] |> x-> Diagonal(x)
+
+            S = [LPY' * V[k] * LPY - tr(LΣ_invL * V[k]) for k in 2:K]
+            pushfirst!(S, PY'PY - tr(R_inv) + tr(LR_inv2L * Σ_L_inv))
+
+            # Compute Σ_inv and P
+            # Σ_inv = R_inv - LR_inv' * Σ_L_inv * LR_inv
+            # XΣ_inv = X'Σ_inv
+            # P = Σ_inv - XΣ_inv' * (XΣ_invX \ XΣ_inv)
+            # PL = P * L
+
+            # Approximate P by R_inv
+            P = R_inv
+            PL = BlockDiagonal([sum(blocks(P)[i], dims=2) for i in 1:m])
+            LPL_ = pushfirst!(repeat([PL], K-1), P)
+        else
+            S = [LPY' * V[k] * LPY - tr(LΣ_invL * V[k]) for k in 1:K]
+            LPL_ = repeat([LPL], K)
+        end
 
         # Define the average information matrix AI
         AI = Array{T}(undef, K, K)
         for k in 1:K
             for l in k:K
-                AI[k, l] = VLPY[k]' * LPLVLPY[l]
+                if k == 1
+                    AI[k, l] = VLPY[k]' * LPL_[l] * VLPY[l]
+                else
+                    AI[k, l] = VLPY[k]' * LPL * VLPY[l]
+                end
             end
         end
         AI = Symmetric(AI)
-
-        # Update the covariance matrix D
-        DZt = [D * Z[i]' for i in 1:m] |> x->BlockDiagonal(x)
-        a = DZt * PY
-        a_ = [a[((i-1)*size(Z[1], 2)+1):i*size(Z[1], 2)] for i in 1:m]
-        aat = [a_[i] * a_[i]' for i in 1:m] |> x-> sum(x)
         
-        ZR_invZ = [Z[i]' * blocks(R_inv)[i] * Z[i] for i in 1:m] |> x-> sum(x)
-        LR_invZ = [blocks(LR_inv)[i] * Z[i] for i in 1:m] |> x-> reduce(vcat, x)
-
-        M = ZR_invZ - LR_invZ' * Σ_L_inv * LR_invZ |> x-> cholesky(Symmetric(x))
-        
-        D_new = inv(M.U) * sqrt(M.U * aat * M.L) * inv(M.L)
-        
-        return(AI = AI, S = S, α = α, η = η, D = D_new)
+        return(AI = AI, S = S, α = α, η = η)
     end
 end
