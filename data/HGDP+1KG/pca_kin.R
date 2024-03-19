@@ -82,6 +82,6 @@ write.table(rownames(pcrelMat), file="grm_ids.txt", quote = F, row.names = F, co
 pcrelMatsp <- pcrelateToMatrix(mypcrelate, 
                              scaleKin=1, 
                              verbose=FALSE,
-                             thresh = 0.125
+                             thresh = 2^(-9/2)
 )
 saveRDS(pcrelMatsp, "sparse_grm.rds")

@@ -11,6 +11,7 @@ export pglmm_null
 export pglmm_cv
 export pglmm
 export read_sparse_grm
+export read_full_grm
 
 include("pglmm_null.jl")
 include("pglmm.jl")

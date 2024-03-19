@@ -1,15 +1,13 @@
 # ========================================================================
 # Code for simulating binary or continuous traits with environmental exposure from HGDP+1KG data
 # ========================================================================
-using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Distributions, CodecZlib, SparseArrays, RCall
-# using ADMIXTURE
+using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Distributions, CodecZlib, SparseArrays, RCall, RData, BlockDiagonals
 
 # ------------------------------------------------------------------------
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-# const ARGS_ = isempty(ARGS) ? ["0.2", "0.1", "0.4", "0.2", "0.2", "10000", "0.01", "0.5", "true", "../"] : ARGS
-const ARGS_ = isempty(ARGS) ? ["0", "0", "0", "0", "0.2", "10000", "0.01", "0.5", "true", "../"] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0", "0", "0.2", "0", "0.2", "10000", "0.01", "0.5", "true", ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -53,11 +51,12 @@ end
 dat = @chain CSV.read(datadir * "HGDP+1KG/covars.csv", DataFrame) begin
     @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE1 = round.(rand(Normal(50, 5), length(:ind)), digits = 0))
     @transform!(:AGE2 = :AGE1 .+ 1, :AGE3 = :AGE1 .+ 2, :AGE4 = :AGE1 .+ 3, :AGE5 = :AGE1 .+ 4)
-    stack([:AGE1, :AGE2, :AGE3, :AGE4, :AGE5], value_name = :AGE)
+    stack([:AGE1, :AGE2, :AGE3, :AGE4, :AGE5], value_name = :AGE, variable_name = :AGEvar)
     @transform(:EXP = rand(Normal(), length(:ind)))
     sort([:IID, :AGE])
+    @transform(:TIME = :AGE / 50)
     rightjoin(samples, on = [:IID, :FID], order = :right)
-    @select!(:FID, :IID, :POP, :SEX, :AGE, :EXP, :related, :related_exclude, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
+    @select!(:FID, :IID, :POP, :SEX, :AGE, :TIME, :EXP, :related, :related_exclude, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
 end
 
 # Randomly sample subjects by POP for training and test sets
@@ -98,8 +97,11 @@ _maf.ALL = maf(@view(_HGDP1KG[inds, :]))
 _maf.ALLtrain = maf(@view(_HGDP1KG[inds .& uniquedat.train, :]))
 snps = findall((_maf.ALL .!= 0) .& (_maf.ALL .!= 0.5) .& (_maf.ALLtrain .!= 0) .& (_maf.ALLtrain .!= 0.5))
 
+# Remove snps that have been used to calculate GRM
+pruned = load(datadir * "HGDP+1KG/pruned_snps.rds")
+
 # Sample p candidate SNPs randomly accross genome, convert to additive model and impute
-snp_inds = sample(snps, p, replace = false, ordered = true)
+snp_inds = sample(setdiff(snps, pruned), p, replace = false, ordered = true)
 G = convert(Matrix{Float64}, @view(_HGDP1KG[inds, snp_inds]), impute = true, center = true, scale = true)
 
 # Function to return standard deviation and mean of each SNP
@@ -131,7 +133,7 @@ muG, sG = standardizeG(@view(_HGDP1KG[inds, snp_inds]), ADDITIVE_MODEL, true)
 rowmask, colmask = inds, [col in snp_inds for col in 1:size(_HGDP1KG, 2)]
 SnpArrays.filter(datadir * "HGDP+1KG/HGDP+1KG", rowmask, colmask, des = "geno")
 
-# Read GRM
+# Read full GRM
 grm_ids = CSV.read(datadir * "HGDP+1KG/grm_ids.txt", DataFrame; header = false)[:, 1]
 grminds = [findfirst(x -> x == uniquedat.IID[i], grm_ids) for i in 1:m]
 
@@ -151,6 +153,16 @@ function posdef(GRM::Matrix{T}) where T
 end
 GRM = posdef(GRM)
 
+# # Read sparse GRM 
+# include(dirname(dirname(datadir)) * "/src/utils.jl")
+# GRM, GRM_ids = read_sparse_grm(datadir * "HGDP+1KG/sparse_grm.rds", uniquedat.IID)
+# GRM = Matrix(GRM)
+
+# # Change order of covariate file to match sparse GRM
+# covrowinds = reduce(vcat, [findall(dat.IID .== GRM_ids[i]) for i in 1:length(GRM_ids)])
+# dat = dat[covrowinds, :]
+# uniquedat = unique(dat, :IID)
+
 # GEI similarity matrix
 D = uniquedat.SEX
 V_D = D * D'
@@ -163,11 +175,14 @@ GRM_D = GRM .* V_D
 # Simulate phenotypes
 # ------------------------------------------------------------------------
 # Simulate population structure
-POP = [dat.POP .== unique(dat.POP)[i] for i in 1:length(unique(dat.POP))] |> x-> mapreduce(permutedims, vcat, x)'
-pi0 = POP * rand(Uniform(0.1, 0.9), size(POP, 2))
+# POP = [dat.POP .== unique(dat.POP)[i] for i in 1:length(unique(dat.POP))] |> x-> mapreduce(permutedims, vcat, x)'
+# pi0 = POP * rand(Uniform(0.1, 0.9), size(POP, 2))
+
+# Simulate no population structure
+pi0 = 0.7315
 
 # Simulate Normal error
-e = rand(Normal(), size(dat, 1))
+e = rand(Normal(0, 1), size(dat, 1))
 
 # Variance components
 sigma2_e = var(e)
@@ -189,18 +204,18 @@ W[s_] .= sigma2_GEI/length(s_)
 gamma = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
 # Simulate random effects
-a = rand(MvNormal([2 -0.5; -0.5 1]), m)'
+a = rand(MvNormal([2.0 -0.5; -0.5 1.0]), m)'
 b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(m)
 b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(m)
 
 # Create L matrix
-L = [dat.IID .== unique(dat.IID)[i] for i in 1:m] |> x-> mapreduce(permutedims, vcat, x) |> x-> Float64.(x)
-a_ = sum((L' * a) .* hcat(dat.AGE /std(dat.AGE), dat.EXP), dims=2)
+L = [dat.IID .== unique(dat.IID)[i] for i in 1:m] |> x-> mapreduce(permutedims, vcat, x)' |> x-> Float64.(x)
+a_ = sum((L * a) .* hcat(dat.TIME, dat.EXP), dims=2)
 
 # Simulate outcome
 logit(x) = log(x / (1 - x))
 final_dat = @chain dat begin
-    @transform!(:y = vec(logit.(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE .- mean(:AGE))/ 10 + L' * (G * beta) + (L' * (G * gamma)) .* :SEX + a_ + L' * b + e))
+    @transform!(:y = vec(logit(pi0) .- log(1.3) * :SEX + log(1.05) * :AGE + L * (G * beta) + (L * (G * gamma)) .* :SEX + a_ + L * b + e))
     @transform(:ybin = Int.(:y .> quantile(:y, 1 - prev)))
 end
 

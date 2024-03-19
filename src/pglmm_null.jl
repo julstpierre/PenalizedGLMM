@@ -191,6 +191,11 @@ function pglmm_null(
             z = all(z[:, 1] .== 1) ? hcat(ones(n), z[:, 2:end] ./ sqrt.(diag(cov(z[:, 2:end])))') : z ./ sqrt.(diag(cov(z)))'
         end
         Z = [z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], :] for i in 1:m]
+
+        # Update initial value for variance components based on ZDZt
+        ZDZt = BlockDiagonal([Z[i] * D * Z[i]' for i in 1:m])
+        e = Ytilde - X * α_0
+        theta0 = fill(e'inv(Diagonal(ones(n)) + ZDZt)*e / (K*n), K)
     end
 
     #--------------------------------------------------------------
@@ -198,12 +203,10 @@ function pglmm_null(
     #--------------------------------------------------------------
     # Initialize number of steps
     nsteps = 1
-    prev_obj = Inf
 
     if isnothing(tau)
             fit = glmmfit_ai(family, theta0, V, Z, L, D, X, Ytilde, W, K)
             theta0 = theta0 + n^-1 * theta0.^2 .* fit.S
-            theta0 = max.(theta0 + fit.AI \ fit.S, 10^-6 * var(Ytilde))
     end
 
     # Iterate until convergence
@@ -250,7 +253,8 @@ function pglmm_null(
                    X = X,
                    ind_E = ind_E,
                    family = family,
-                   D = D_new)
+                   D = D_new,
+                   nsteps = nsteps)
             break
         else
             theta0 = theta
@@ -300,7 +304,7 @@ function glmmfit_ai(
         S = [PY' * VPY[k] - sum(Matrix(inv(Σ)) .* Matrix(V[k])) - sum(XΣ_inv .* (covXΣ_inv * V[k])) for k in 1:K]
 
         # Define the average information matrix AI
-        AI = Array{Float64}(undef, K, K)
+        AI = Array{T}(undef, K, K)
         for k in 1:K
             for l in k:K
                 AI[k, l] = VPY[k]' * PVPY[l]
@@ -328,7 +332,7 @@ function glmmfit_ai(
     update_D::Bool = false
     ) where T
 
-    # Calculate inverse of R and usefull quantities
+    # Calculate inverse of R and useful quantities
     m = length(Z)
     R_inv = [Z[i] * D * Z[i]' for i in 1:m] |> x->BlockDiagonal(x) + W^-1 |> x-> inv(x)
     LR_inv = [sum(blocks(R_inv)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonal(x)
@@ -375,41 +379,115 @@ function glmmfit_ai(
         # Define the score of the restricted quasi-likelihood with respect to variance components
         if family == Normal()
 
+            # Compute useful quantities to caluclate trace
             R_inv2 = R_inv*R_inv
             LR_inv2 = [sum(blocks(R_inv2)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonal(x)
             LR_inv2L = [sum(blocks(LR_inv2)[i]) for i in 1:m] |> x-> Diagonal(x)
 
+            # Define the score
             S = [LPY' * V[k] * LPY - tr(LΣ_invL * V[k]) for k in 2:K]
             pushfirst!(S, PY'PY - tr(R_inv) + tr(LR_inv2L * Σ_L_inv))
 
-            # Compute Σ_inv and P
-            # Σ_inv = R_inv - LR_inv' * Σ_L_inv * LR_inv
-            # XΣ_inv = X'Σ_inv
-            # P = Σ_inv - XΣ_inv' * (XΣ_invX \ XΣ_inv)
-            # PL = P * L
+            # Compute P * PY
+            R_invPY = R_inv * PY
+            LR_invPY = L'R_invPY
+            Σ_invPY = R_invPY - LR_inv' * (Σ_L_inv * LR_invPY)
+            XΣ_inv = XR_inv - LR_invX' * (Σ_L_inv * LR_inv)
+            XΣ_invPY = XΣ_inv * PY
+            PPY = Σ_invPY - XΣ_inv' * (XΣ_invX \ XΣ_invPY)
 
-            # Approximate P by R_inv
-            P = R_inv
-            PL = BlockDiagonal([sum(blocks(P)[i], dims=2) for i in 1:m])
-            LPL_ = pushfirst!(repeat([PL], K-1), P)
+            # Define the average information matrix AI
+            AI = Array{T}(undef, K, K)
+            AI[1, 1] = PY'PPY
+            for k in 1:K
+                for l in 2:K
+                    if k == 1
+                        AI[k, l] = PPY'L * VLPY[l]
+                    else
+                        AI[k, l] = VLPY[k]' * LPL * VLPY[l]
+                    end
+                end
+            end
+            AI = Symmetric(AI)
+
         else
+            # Define the score
             S = [LPY' * V[k] * LPY - tr(LΣ_invL * V[k]) for k in 1:K]
-            LPL_ = repeat([LPL], K)
-        end
 
-        # Define the average information matrix AI
-        AI = Array{T}(undef, K, K)
-        for k in 1:K
-            for l in k:K
-                if k == 1
-                    AI[k, l] = VLPY[k]' * LPL_[l] * VLPY[l]
-                else
+            # Define the average information matrix AI
+            AI = Array{T}(undef, K, K)
+            for k in 1:K
+                for l in k:K
                     AI[k, l] = VLPY[k]' * LPL * VLPY[l]
                 end
             end
+            AI = Symmetric(AI)
+
         end
-        AI = Symmetric(AI)
         
         return(AI = AI, S = S, α = α, η = η)
+    end
+end
+
+# Write function to calculate log-likelihood
+function logL(::Normal, 
+              theta::Vector{T}, 
+              V::Vector{Any},
+              r::Vector{T}
+            ) where T
+    
+    if any(theta .< 0)
+        -Inf
+    else
+        # Define inverse of Σ
+        W = 1/first(theta) * Diagonal(ones(length(r)))
+        τV = sum(theta[2:end] .* V[2:end])
+        Σ = τV + W^-1
+        PY = Σ \ r
+        -0.5 * logdet(Σ) -0.5 * logdet(W) -0.5 * r'PY
+    end
+end
+
+# Write function to calculate log-likelihood
+function logL(::Normal, 
+              D::Matrix{T}, 
+              Z::Vector{Matrix{T}},
+              L::BlockDiagonal{T, Matrix{T}},
+              theta::Vector{T}, 
+              V::Vector{Any},
+              r::Vector{T}
+            ) where T
+    
+    if any(theta .< 0)
+        -Inf
+    else
+        # Calculate inverse of R and useful quantities
+        m = length(Z)
+        W = 1/first(theta) * Diagonal(ones(length(r)))
+        R_inv = [Z[i] * D * Z[i]' for i in 1:m] |> x->BlockDiagonal(x) + W^-1 |> x-> inv(x)
+        LR_inv = [sum(blocks(R_inv)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonal(x)
+        LR_invL = [sum(blocks(LR_inv)[i]) for i in 1:m] |> x-> Diagonal(x)
+
+        # Define inverse of Σ using matrix inversion lemma
+        τV = sum(theta[2:end] .* V[2:end])
+        τV_inv = inv(τV)
+        Σ_L_inv = inv(LR_invL + τV_inv)
+        PY = R_inv * r - LR_inv' * (Σ_L_inv * (LR_inv * r))
+
+        # Construct block matrix HWH
+        ZW = BlockDiagonal(Z)'W
+        ZWZ = BlockDiagonal([blocks(ZW)[i] * Z[i] for i in 1:m])
+        ZWL = [sum(blocks(ZW)[i], dims = 2) for i in 1:m] |> x-> BlockDiagonal(x)
+        LWL = [sum(blocks(L'W)[i], dims = 2) for i in 1:m] |> x-> BlockDiagonal(x)
+
+        # Construct block matrix diag{D, τV} * HWH
+        A_11 = BlockDiagonal([D * blocks(ZWZ)[i] for i in 1:m])
+        A_12 = BlockDiagonal([D * blocks(ZWL)[i] for i in 1:m])
+        A_21 = τV * ZWL'
+        A_22 = τV * LWL
+        Imat = Diagonal(ones(m * (size(D, 1) + 1)))
+        Mat = [Matrix(A_11) Matrix(A_12) ; A_21 A_22] + Imat
+
+        -0.5 * logdet(Mat) -0.5 * r'PY
     end
 end

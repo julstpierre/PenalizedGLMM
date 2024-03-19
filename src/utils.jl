@@ -47,7 +47,7 @@ function BlockDiagonal(A::SparseMatrixCSC)
         i += size(V_, 2)
     end
     
-    BlockDiagonal(V)
+    BlockDiagonals.BlockDiagonal(V)
 end
 
 # Read sparse GRM from .rds object and convert into BlockDiagonal matrix
@@ -61,6 +61,20 @@ function read_sparse_grm(grmfile::AbstractString, indvs::AbstractVector)
 
     return(GRM, GRM_ids[grmrowinds])
 
+end
+
+# Read full GRM from compressed txt file
+function read_full_grm(grmfile::AbstractString, grmidfile::AbstractString, indvs::AbstractVector)
+    GRM = open(GzipDecompressorStream, grmfile, "r") do stream
+                Matrix(CSV.read(stream, DataFrame))
+            end
+    GRM_ids = CSV.read(grmidfile, DataFrame; header = false).Column1
+    grmrowinds = indexin(intersect(GRM_ids, indvs), GRM_ids)
+    
+    # Keep only training individuals
+    GRM = GRM[grmrowinds, grmrowinds]
+
+    return(GRM, GRM_ids[grmrowinds])
 end
 
 # Function to perform half-vectorization operator
