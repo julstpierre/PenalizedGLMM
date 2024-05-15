@@ -87,3 +87,14 @@ function vech(A::AbstractMatrix{T}) where T
     end
     return v
 end
+
+# Function to fill upper-diagonal matrix from a vector
+function vector_to_upper_diag(vec::Vector{T}, n::Integer) where T
+    mat, vec_ = zeros(n, n), copy(vec)
+    for i in 1:n
+        for j in i:n
+            mat[i, j] = popfirst!(vec_)
+        end
+    end
+    return mat
+end

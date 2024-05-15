@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0", "0", "0.2", "0", "0.2", "10000", "0.01", "0.5", "true", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.02", "0", "0.1", "0", "0.2", "10000", "0.01", "0.5", "true", ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -48,16 +48,19 @@ samples = @chain CSV.read(datadir * "HGDP+1KG/HGDP+1KG.fam", DataFrame; header =
 end
 
 # Combine into a DataFrame
-dat = @chain CSV.read(datadir * "HGDP+1KG/covars.csv", DataFrame) begin
+dat_ = @chain CSV.read(datadir * "HGDP+1KG/covars.csv", DataFrame) begin
     @transform!(:FID = 0, :IID = :ind, :SEX = 1 * (:gender .== "male"), :POP = :super_pop, :AGE1 = round.(rand(Normal(50, 5), length(:ind)), digits = 0))
     @transform!(:AGE2 = :AGE1 .+ 1, :AGE3 = :AGE1 .+ 2, :AGE4 = :AGE1 .+ 3, :AGE5 = :AGE1 .+ 4)
     stack([:AGE1, :AGE2, :AGE3, :AGE4, :AGE5], value_name = :AGE, variable_name = :AGEvar)
-    @transform(:EXP = rand(Normal(), length(:ind)))
+    @transform(:TIME = (:AGE .- mean(:AGE)) / 5, :EXP = rand(Normal(), length(:ind)))
     sort([:IID, :AGE])
-    @transform(:TIME = :AGE / 50)
     rightjoin(samples, on = [:IID, :FID], order = :right)
     @select!(:FID, :IID, :POP, :SEX, :AGE, :TIME, :EXP, :related, :related_exclude, :PC1, :PC2, :PC3, :PC4, :PC5, :PC6, :PC7, :PC8, :PC9, :PC10)
 end
+
+# Randomly sample from 1 to 5 rows from each individual
+rows = [sample(1:5, sample(1:5), replace = false, ordered = true) for i in 1:length(groupby(dat_, :IID))]
+dat = reduce(vcat, [groupby(dat_, :IID)[i][rows[i],:] for i in 1:length(rows)])
 
 # Randomly sample subjects by POP for training and test sets
 grpdat = groupby(filter(:related => f-> f==false, dat), :POP)
@@ -184,8 +187,13 @@ pi0 = 0.7315
 # Simulate Normal error
 e = rand(Normal(0, 1), size(dat, 1))
 
+# Simulate random intercept and random slopes
+L = [dat.IID .== unique(dat.IID)[i] for i in 1:m] |> x-> mapreduce(permutedims, vcat, x)' |> x-> Float64.(x)
+a = rand(MvNormal([0.4 -0.2 0.1; -0.2 0.5 0.2; 0.1 0.2 0.3]), m)'
+a_ = sum((L * a) .* hcat(one.(dat.TIME), dat.TIME, dat.EXP), dims=2)
+
 # Variance components
-sigma2_e = var(e)
+sigma2_e = var(e) + var(a_)
 sigma2_g = h2_g / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
 sigma2_GEI = h2_GEI / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
 sigma2_b = h2_b / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
@@ -203,14 +211,9 @@ s_ = hier ? sample(s, Integer(round(p*c*c_)), replace = false, ordered = true) :
 W[s_] .= sigma2_GEI/length(s_)
 gamma = rand.([Normal(0, sqrt(W[i])) for i in 1:p])
 
-# Simulate random effects
-a = rand(MvNormal([2.0 -0.5; -0.5 1.0]), m)'
+# Simulate polygenic random effects
 b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(m)
 b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(m)
-
-# Create L matrix
-L = [dat.IID .== unique(dat.IID)[i] for i in 1:m] |> x-> mapreduce(permutedims, vcat, x)' |> x-> Float64.(x)
-a_ = sum((L * a) .* hcat(dat.TIME, dat.EXP), dims=2)
 
 # Simulate outcome
 logit(x) = log(x / (1 - x))

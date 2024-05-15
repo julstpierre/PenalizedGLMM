@@ -50,27 +50,6 @@ function pglm(
     upper_bound::Bool = false,
     kwargs...
     ) where T
-
-    # # keyword arguments
-    # covrowinds = trainrowinds
-    # snpmodel = ADDITIVE_MODEL
-    # snpinds = nothing
-    # geneticrowinds = trainrowinds
-    # family = Binomial()
-    # link = LogitLink()
-    # GEIvar = nothing
-    # irls_tol = 1e-7
-    # irls_maxiter = 500
-    # nlambda = 100
-    # lambda = nothing
-    # rho = 0.5
-    # verbose = true
-    # standardize_X = true
-    # standardize_G = true
-    # criterion = :coef
-    # earlystop= false
-    # method = :cd 
-    # upper_bound = false
     
     #--------------------------------------------------------------
     # Read covariate file
@@ -651,7 +630,7 @@ function cycle(
         r = update_r(X, r, last_α - new_α, j)
 
         maxΔ = max(maxΔ, Swxxj * (last_α - new_α)^2)
-        α[j] = new_α
+        copyto!(α, j, new_α)
     end
 
     # Genetic predictors
