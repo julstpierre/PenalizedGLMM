@@ -7,7 +7,7 @@ using CSV, DataFrames, SnpArrays, DataFramesMeta, StatsBase, LinearAlgebra, Dist
 # Initialize parameters
 # ------------------------------------------------------------------------
 # Assign default command-line arguments
-const ARGS_ = isempty(ARGS) ? ["0.02", "0", "0.1", "0", "0.2", "10000", "0.01", "0.5", "true", ""] : ARGS
+const ARGS_ = isempty(ARGS) ? ["0.02", "0", "0.2", "0", "0.2", "10000", "0.01", "0.5", "true", ""] : ARGS
 
 # Fraction of variance due to fixed polygenic additive effect (logit scale)
 h2_g = parse(Float64, ARGS_[1])
@@ -178,11 +178,11 @@ GRM_D = GRM .* V_D
 # Simulate phenotypes
 # ------------------------------------------------------------------------
 # Simulate population structure
-# POP = [dat.POP .== unique(dat.POP)[i] for i in 1:length(unique(dat.POP))] |> x-> mapreduce(permutedims, vcat, x)'
-# pi0 = POP * rand(Uniform(0.1, 0.9), size(POP, 2))
+POP = [dat.POP .== unique(dat.POP)[i] for i in 1:length(unique(dat.POP))] |> x-> mapreduce(permutedims, vcat, x)'
+pi0 = POP * rand(Uniform(0.1, 0.3), length(unique(dat.POP)))
 
 # Simulate no population structure
-pi0 = 0.7315
+# pi0 = repeat([0.7315], size(dat, 1))
 
 # Simulate Normal error
 e = rand(Normal(0, 1), size(dat, 1))
@@ -193,7 +193,8 @@ a = rand(MvNormal([0.4 -0.2 0.1; -0.2 0.5 0.2; 0.1 0.2 0.3]), m)'
 a_ = sum((L * a) .* hcat(one.(dat.TIME), dat.TIME, dat.EXP), dims=2)
 
 # Variance components
-sigma2_e = var(e) + var(a_)
+logit(x) = log(x / (1 - x))
+sigma2_e = var(e) + var(a_) + var(logit.(pi0))
 sigma2_g = h2_g / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
 sigma2_GEI = h2_GEI / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
 sigma2_b = h2_b / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
@@ -216,9 +217,8 @@ b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(m)
 b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(m)
 
 # Simulate outcome
-logit(x) = log(x / (1 - x))
 final_dat = @chain dat begin
-    @transform!(:y = vec(logit(pi0) .- log(1.3) * :SEX + log(1.05) * :AGE + L * (G * beta) + (L * (G * gamma)) .* :SEX + a_ + L * b + e))
+    @transform!(:y = vec(logit.(pi0) .- log(1.3) * :SEX + log(1.05) * :AGE + L * (G * beta) + (L * (G * gamma)) .* :SEX + a_ + L * b + e))
     @transform(:ybin = Int.(:y .> quantile(:y, 1 - prev)))
 end
 
