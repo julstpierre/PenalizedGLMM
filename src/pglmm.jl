@@ -449,7 +449,7 @@ function pglmm_fit(
     return(alphas = alphas[:, 1:i], betas = betas[:, 1:i], pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
 end
 
-# Function to fit a group lasso penalized mixed model for binary traits
+# Function to fit a sparse group lasso penalized mixed model for binary traits
 function pglmm_fit(
     ::Binomial,
     Ytilde::Vector{T},
@@ -587,7 +587,7 @@ function pglmm_fit(
     return(alphas = alphas[:, 1:i], betas = betas[:, 1:i], gammas = gammas[:, 1:i], pct_dev = pct_dev[1:i], λ = λ_seq[1:i], fitted_values = view(fitted_means, :, 1:i))
 end
 
-# Function to fit a group lasso penalized mixed model for continous traits
+# Function to fit a sparse group lasso penalized mixed model for continous traits
 function pglmm_fit(
     ::Normal,
     Ytilde::Vector{T},
@@ -1150,7 +1150,7 @@ function cycle(
         Swdgj = Swdg[j]
         v = compute_grad(D, G, w, r, j) + last_γ * Swdgj
         if abs(v) > rho * λj
-            new_γ = softtreshold(v, rho * λj) / (Swdgj + (1 - rho) * λj / norm((last_γ, last_β)))
+            new_γ = softtreshold(v, rho * λj) / (Swdgj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β)))
             r = update_r(D, G, r, last_γ - new_γ, j)
 
             maxΔ = max(maxΔ, Swdgj * (last_γ - new_γ)^2)
@@ -1160,7 +1160,7 @@ function cycle(
         # Update genetic effect
         Swggj = Swgg[j] 
         v = compute_grad(G, w, r, j) + last_β * Swggj
-        new_β = γ[j] != 0 ? v / (Swggj + (1 - rho) * λj / norm((last_γ, last_β))) : softtreshold(v, (1 - rho) * λj) / Swgg[j]
+        new_β = γ[j] != 0 ? v / (Swggj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β))) : softtreshold(v, sqrt(2) * (1 - rho) * λj) / Swgg[j]
         r = update_r(G, r, last_β - new_β, j)
 
         maxΔ = max(maxΔ, Swggj * (last_β - new_β)^2)
@@ -1175,7 +1175,7 @@ function cycle(
     # positional arguments
     X::Matrix{T},
     G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
-    λ::T,
+    λ::T, 
     all_pred::Val{true};
     #keywords arguments
     r::Vector{T},
@@ -1308,7 +1308,7 @@ function cycle(
             v1 += last_β * Swgg[j]
         else
             # Adding a new variable to the model
-            norm([v1, softtreshold(v2, rho * λj)]) <= (1 - rho) * λj && continue
+            norm([v1, softtreshold(v2, rho * λj)]) <= sqrt(2) * (1 - rho) * λj && continue
             kkt_check = false
             last_β, β[j] = 0, 1
             copyto!(Swgg, j, compute_Swxx(G, w, j))
@@ -1326,7 +1326,7 @@ function cycle(
                 copyto!(Swdg, j, compute_Swxx(D, G, w, j))
             else
                 # Update β only
-                new_β = softtreshold(v1, (1 - rho) * λj) / Swggj
+                new_β = softtreshold(v1, sqrt(2) * (1 - rho) * λj) / Swggj
                 r = update_r(G, r, last_β - new_β, j)
 
                 maxΔ = max(maxΔ, Swggj * (last_β - new_β)^2)
@@ -1337,11 +1337,11 @@ function cycle(
 
         # Update β and γ
         Swdgj = Swdg[j]
-        new_γ = softtreshold(v2, rho * λj) / (Swdgj + (1 - rho) * λj / norm((last_γ, last_β)))
+        new_γ = softtreshold(v2, rho * λj) / (Swdgj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β)))
         r = update_r(D, G, r, last_γ - new_γ, j)
 
         v = compute_grad(G, w, r, j) + last_β * Swggj
-        new_β = v / (Swggj + (1 - rho) * λj / norm((last_γ, last_β)))
+        new_β = v / (Swggj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β)))
         r = update_r(G, r, last_β - new_β, j)
 
         maxΔ = max(maxΔ, Swggj * (last_β - new_β)^2, Swdgj * (last_γ - new_γ)^2)
@@ -1917,7 +1917,7 @@ function compute_max(D::AbstractVector{T}, X::AbstractMatrix{T}, r::AbstractVect
     if rho == 1
         abs(v[2])
     else
-        norm(v) / (1 - rho)
+        norm(v) / (sqrt(2) * (1 - rho))
     end
 end
 
@@ -1984,7 +1984,7 @@ function P(α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, p_fX::
             x += p_fX[i] * abs(α[i])
     end
     @inbounds @simd for i in β.nzind
-            x += p_fG[i] * ((1 - rho) * norm((β[i], γ[i])) + rho * abs(γ[i]))
+            x += p_fG[i] * (sqrt(2) * (1 - rho) * norm((β[i], γ[i])) + rho * abs(γ[i]))
     end
     x
 end
@@ -2031,7 +2031,7 @@ function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vec
         j in β.nzind && continue
         c1 = compute_prod(G, y, μ, j)
         c2 = softtreshold(compute_prod(D, G, y, μ, j), rho * λ * p_fG[j])
-        norm([c1, c2]) <= (1 - rho) * dλ * p_fG[j] && continue
+        norm([c1, c2]) <= sqrt(2) * (1 - rho) * dλ * p_fG[j] && continue
         
         # Force a new group to the model
         sort!(push!(nzβind, j))

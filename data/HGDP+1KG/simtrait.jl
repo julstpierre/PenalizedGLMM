@@ -214,13 +214,14 @@ PCs = X_grm * V * inv(Diagonal(S))
 # ------------------------------------------------------------------------
 # Simulate population structure
 Z = [dat.POP .== unique(dat.POP)[i] for i in 1:length(unique(dat.POP))] |> x-> mapreduce(permutedims, vcat, x)'
-pi0 = Z * rand(Uniform(0.1, 0.9), size(Z, 2))
+pi0 = Z * rand(Uniform(0.1, 0.5), size(Z, 2))
 
 # Simulate Logistic error
 e = rand(Logistic(), size(dat, 1))
 
 # Variance components
-sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10) + var(pi0)
+logit(x) = log(x / (1 - x))
+sigma2_e = pi^2 / 3 + log(1.3)^2 * var(dat.SEX) + log(1.05)^2 * var(dat.AGE / 10) + var(logit.(pi0))
 sigma2_g = h2_g / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
 sigma2_GEI = h2_GEI / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
 sigma2_b = h2_b / (1 - h2_g - h2_b - h2_d - h2_GEI) * sigma2_e
@@ -243,7 +244,6 @@ b = h2_b > 0 ? rand(MvNormal(sigma2_b * GRM)) : zeros(size(dat, 1))
 b += h2_d > 0 ? rand(MvNormal(sigma2_d * GRM_D)) : zeros(size(dat, 1))
 
 # Simulate binary traits
-logit(x) = log(x / (1 - x))
 final_dat = @chain dat begin
     @transform!(:logit_pi = logit.(pi0) .- log(1.3) * :SEX + log(1.05) * (:AGE .- mean(:AGE))/ 10 + G * beta + (G .* :SEX) * gamma + b + e)
     @transform(:y = Int.(:logit_pi .> quantile(:logit_pi, 1 - prev)))

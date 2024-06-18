@@ -11,7 +11,6 @@
 - `link::GLM.Link`: `LogitLink()` (default).
 - `tol::Float64 = 1e-5 (default)`: tolerance for convergence of PQL estimates.
 - `maxiter::Integer = 500 (default)`: maximum number of iterations for AI-REML algorithm.
-- `tau::Union{Nothing, Vector{T}} = nothing (default)`: Fix the value(s) for variance component(s).
 - `method = :AIREML (default)`: Method to estimate variance components. Alternatively, one can use :AIML for ML estimation.
 """
 function pglmm_null(

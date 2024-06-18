@@ -41,7 +41,6 @@ function pglmm_cv(
     link::GLM.Link = LogitLink(),
     GEIvar::Union{Nothing,AbstractString} = nothing,
     GEIkin::Bool = true,
-    M::Union{Nothing, Vector{Any}} = nothing,
     tol::T = 1e-5,
     maxiter::Integer = 500,
     irls_tol::T = 1e-7,
@@ -55,7 +54,6 @@ function pglmm_cv(
     earlystop::Bool = false,
     method = :cd,
     upper_bound::Bool = false,
-    tau::Union{Nothing, Vector{T}} = nothing,
     nfolds::Integer = 4,
     foldid::Union{Nothing, AbstractVector{<:Integer}} = nothing,
     type_measure = :auc,
@@ -66,18 +64,16 @@ function pglmm_cv(
     # Fit null model using all observations
     nullmodel_full = pglmm_null(
         nullformula,
-        covfile,
-        grmfile,
+        covfile = covfile,
+        grmfile = grmfile,
         covrowinds = covrowinds,
         grminds = grminds,
         family = family,
         link = link,
         GEIvar = GEIvar,
         GEIkin = GEIkin,
-        M = M,
         tol = tol,
-        maxiter = maxiter,
-        tau = tau
+        maxiter = maxiter
         )
 
     # Fit lasso model using all observations
@@ -158,18 +154,16 @@ function pglmm_cv(
         # Single thread
         nullmodel = [pglmm_null(
             nullformula,
-            covfile,
-            grmfile,
+            covfile = covfile,
+            grmfile = grmfile,
             covrowinds = covrowinds[foldid .!= i],
             grminds = grminds[foldid .!= i],
             family = family,
             link = link,
             GEIvar = GEIvar,
             GEIkin = GEIkin,
-            M = M,
             tol = tol,
-            maxiter = maxiter,
-            tau = tau
+            maxiter = maxiter
             )  for i in 1:nfolds]
     else
         # Parallel threads
@@ -177,18 +171,16 @@ function pglmm_cv(
         Threads.@threads for i = 1:nfolds
             nullmodel[i] = pglmm_null(
                 nullformula,
-                covfile,
-                grmfile,
+                covfile = covfile,
+                grmfile = grmfile,
                 covrowinds = covrowinds[foldid .!= i],
                 grminds = grminds[foldid .!= i],
                 family = family,
                 link = link,
                 GEIvar = GEIvar,
                 GEIkin = GEIkin,
-                M = M,
                 tol = tol,
-                maxiter = maxiter,
-                tau = tau
+                maxiter = maxiter
             )
        end
     end
@@ -260,7 +252,6 @@ function pglmm_cv(
             geneticrowinds = geneticrowinds[foldid .== i],
             grmrowinds = grminds[foldid .== i],
             grmcolinds = grminds[foldid .!= i],
-            M = M,
             GEIvar = GEIvar,
             GEIkin = GEIkin,
             outtype = :prob
@@ -283,7 +274,6 @@ function pglmm_cv(
                 geneticrowinds = geneticrowinds[foldid .== i],
                 grmrowinds = grminds[foldid .== i],
                 grmcolinds = grminds[foldid .!= i],
-                M = M,
                 GEIvar = GEIvar,
                 GEIkin = GEIkin,
                 outtype = :prob
@@ -313,7 +303,7 @@ function pglmm_cv(
         end
 
         # Covariance matrix
-        τV = [sum(nullmodel[i].τ .* V[i]) for i in 1:nfolds]
+        τV = [τV[i] for i in 1:nfolds]
 
         # Predict random effects for each fold
         b = [PenalizedGLMM.predict(
@@ -330,7 +320,6 @@ function pglmm_cv(
             geneticrowinds = geneticrowinds[foldid .== i],
             grmrowinds = grminds[foldid .== i],
             grmcolinds = grminds[foldid .!= i],
-            M = M,
             GEIvar = GEIvar,
             GEIkin = GEIkin,
             outtype = :random
