@@ -204,8 +204,8 @@ function pglmm_fit(
     Ytilde::Vector{T},
     y::Vector{Int},
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
-    U::AbstractMatrix,
+    G::AbstractMatrix{T},
+    U::AbstractMatrix{T},
     D::Nothing,
     nulldev::T,
     μ::Vector{T},
@@ -298,14 +298,14 @@ function pglmm_fit(
             # At last iteration, check KKT conditions on the strong set 
             if converged
                 verbose && println("Checking KKT conditions on the strong set.")
-                maxΔ, converged = cycle(X, G, λ, Val(true), r = r, α = α, β = β, Swxx = Swxx, Swgg = Swgg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
+                converged = cycle(X, G, λ, Val(true), r = r, α = α, β = β, Swxx = Swxx, Swgg = Swgg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
                 !converged && verbose && println("KKT conditions not met, refitting the model.")
             end
 
             # Then, check KKT conditions on all predictors
             if converged
                 verbose && println("Checking KKT conditions on all predictors.")
-                maxΔ, converged = cycle(X, G, λ, Val(true), r = r, α = α, β = β, Swxx = Swxx, Swgg = Swgg, w = w, p_fX = p_fX, p_fG = p_fG)
+                converged = cycle(X, G, λ, Val(true), r = r, α = α, β = β, Swxx = Swxx, Swgg = Swgg, w = w, p_fX = p_fX, p_fG = p_fG)
 
                 if !converged 
                     # Recalculate strong rule
@@ -341,8 +341,8 @@ function pglmm_fit(
     Ytilde::Vector{T},
     y::Vector{T},
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
-    U::AbstractMatrix,
+    G::AbstractMatrix{T},
+    U::AbstractMatrix{T},
     D::Nothing,
     nulldev::T,
     μ::Vector{T},
@@ -415,13 +415,13 @@ function pglmm_fit(
             
             # Check KKT conditions on the strong set 
             verbose && println("Checking KKT conditions on the strong set.")
-            maxΔ, converged = cycle(X, G, λ, Val(true), r = r, α = α, β = β, Swxx = Swxx, Swgg = Swgg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
+            converged = cycle(X, G, λ, Val(true), r = r, α = α, β = β, Swxx = Swxx, Swgg = Swgg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
             !converged && verbose && println("KKT conditions not met, refitting the model.")
 
             # Then, check KKT conditions on all predictors
             if converged
                 verbose && println("Checking KKT conditions on all predictors.")
-                maxΔ, converged = cycle(X, G, λ, Val(true), r = r, α = α, β = β, Swxx = Swxx, Swgg = Swgg, w = w, p_fX = p_fX, p_fG = p_fG)
+                converged = cycle(X, G, λ, Val(true), r = r, α = α, β = β, Swxx = Swxx, Swgg = Swgg, w = w, p_fX = p_fX, p_fG = p_fG)
 
                 if !converged 
                     # Recalculate strong rule
@@ -455,8 +455,8 @@ function pglmm_fit(
     Ytilde::Vector{T},
     y::Vector{Int},
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
-    U::AbstractMatrix,
+    G::AbstractMatrix{T},
+    U::AbstractMatrix{T},
     D::Vector{T},
     nulldev::T,
     μ::Vector{T},
@@ -527,7 +527,8 @@ function pglmm_fit(
             loss = dev/2 + last(λ) * P(α, β, γ, p_fX, p_fG, rho)
             
             # If loss function did not decrease, take a half step to ensure convergence
-            if loss > prev_loss + length(μ)*eps(prev_loss)
+            if loss > prev_loss + length(μ)*eps(prev_loss) && !all(β.nzval .== 0)
+                println("β = $β"); println("γ = $γ")
                 println("step-halving because loss=$loss > $prev_loss + $(length(μ)*eps(prev_loss)) = length(μ)*eps(prev_loss)")
                 s = 1.0
                 d = β - β_last
@@ -550,13 +551,13 @@ function pglmm_fit(
             # Check KKT conditions on the strong set at last iteration
             if converged
                 verbose && println("Checking KKT conditions on the strong set.")
-                maxΔ, converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
+                converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
                 !converged && verbose && println("KKT conditions not met, refitting the model.")
             end
 
             if converged
                 verbose && println("Checking KKT conditions on all predictors.")
-                maxΔ, converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
+                converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
 
                 if !converged
                     # Recalculate strong rule
@@ -593,7 +594,7 @@ function pglmm_fit(
     Ytilde::Vector{T},
     y::Vector{T},
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     U::AbstractMatrix,
     D::Vector{T},
     nulldev::T,
@@ -668,12 +669,12 @@ function pglmm_fit(
             
             # Check KKT conditions on the strong set at last iteration
             verbose && println("Checking KKT conditions on the strong set.")
-            maxΔ, converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
+            converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
             !converged && verbose && println("KKT conditions not met, refitting the model.")
 
             if converged
                 verbose && println("Checking KKT conditions on all predictors.")
-                maxΔ, converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
+                converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
 
                 if !converged
                     # Recalculate strong rule
@@ -707,7 +708,7 @@ function cd_lasso(
     # positional arguments
     family::Normal,
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     λ::T;
     #keywords arguments
     r::Vector{T},
@@ -768,7 +769,7 @@ function cd_lasso(
     # positional arguments
     family::Binomial,
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     λ::T;
     #keywords arguments
     r::Vector{T},
@@ -841,7 +842,7 @@ function cd_lasso(
     family::Normal,
     D::Vector{T},
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     λ::T,
     rho::Real;
     #keywords arguments
@@ -905,7 +906,7 @@ function cd_lasso(
     family::Binomial,
     D::Vector{T},
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     λ::T,
     rho::Real;
     #keywords arguments
@@ -1064,7 +1065,7 @@ end
 function cycle(
     # positional arguments
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     λ::T,
     all_pred::Val{false};
     #keywords arguments
@@ -1110,7 +1111,7 @@ function cycle(
     # positional arguments
     D::Vector{T},
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     λ::T,
     rho::Real,
     all_pred::Val{false};
@@ -1160,12 +1161,11 @@ function cycle(
         # Update genetic effect
         Swggj = Swgg[j] 
         v = compute_grad(G, w, r, j) + last_β * Swggj
-        new_β = γ[j] != 0 ? v / (Swggj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β))) : softtreshold(v, sqrt(2) * (1 - rho) * λj) / Swgg[j]
+        new_β = γ[j] != 0 ? v / (Swggj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β))) : softtreshold(v, sqrt(2) * (1 - rho) * λj) / Swggj
         r = update_r(G, r, last_β - new_β, j)
 
         maxΔ = max(maxΔ, Swggj * (last_β - new_β)^2)
         copyto!(β, j, new_β)
-
     end
 
     maxΔ
@@ -1174,7 +1174,7 @@ end
 function cycle(
     # positional arguments
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     λ::T, 
     all_pred::Val{true};
     #keywords arguments
@@ -1190,66 +1190,39 @@ function cycle(
     nzβind::Union{Nothing, Vector{Int}} = nothing
     ) where T
 
-    maxΔ = zero(T)
     kkt_check = true
 
     # At first and last iterations, cycle through all predictors
     # Non-genetic covariates
     rangeα = !isnothing(nzαind) ? nzαind : 1:length(α)
     for j in rangeα
-        v = compute_grad(X, w, r, j)
-        λj = λ * p_fX[j]
-        
-        if j in α.nzind
-            last_α = α[j]
-            v += last_α * Swxx[j]
-        else
+        if j ∉ α.nzind
             # Adding a new variable to the model
             abs(v) <= λj && continue
             kkt_check = false
-            last_α = 0
-            copyto!(Swxx, j, compute_Swxx(X, w, j))
+            copyto!(α, j, 1); copyto!(α, j, 0)
         end
-        Swxxj = Swxx[j]
-        new_α = softtreshold(v, λj) / Swxxj
-        r = update_r(X, r, last_α - new_α, j)
-
-        maxΔ = max(maxΔ, Swxxj * (last_α - new_α)^2)
-        copyto!(α, j, new_α)
     end
 
     # Genetic covariates
     rangeβ = !isnothing(nzβind) ? nzβind : 1:length(β)
     for j in rangeβ
-        v = compute_grad(G, w, r, j)
-        λj = λ * p_fG[j]
-
-        if j in β.nzind
-            last_β = β[j]
-            v += last_β * Swgg[j]
-        else
+        if j ∉ β.nzind
             # Adding a new variable to the model
             abs(v) <= λj && continue
             kkt_check = false
-            last_β = 0
-            copyto!(Swgg, j, compute_Swxx(G, w, j))
+            copyto!(β, j, 1); copyto!(β, j, 0)
         end
-        Swggj = Swgg[j]
-        new_β = softtreshold(v, λj) / Swggj
-        r = update_r(G, r, last_β - new_β, j)
-
-        maxΔ = max(maxΔ, Swggj * (last_β - new_β)^2)
-        copyto!(β, j, new_β)
     end
 
-    return(maxΔ, kkt_check)
+    return(kkt_check)
 end
 
 function cycle(
     # positional arguments
     D::Vector{T},
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     λ::T,
     rho::Real,
     all_pred::Val{true};
@@ -1268,32 +1241,18 @@ function cycle(
     nzβind::Union{Nothing, Vector{Int}} = nothing
     ) where T
 
-    maxΔ = zero(T)
     kkt_check = true
 
     # At first and last iterations, cycle through all predictors
     # Non-genetic covariates
     rangeα = !isnothing(nzαind) ? nzαind : 1:length(α)
     for j in rangeα
-        v = compute_grad(X, w, r, j)
-        λj = λ * p_fX[j]
-        
-        if j in α.nzind
-            last_α = α[j]
-            v += last_α * Swxx[j]
-        else
+        if j ∉ α.nzind
             # Adding a new variable to the model
             abs(v) <= λj && continue
             kkt_check = false
-            last_α = 0
-            copyto!(Swxx, j, compute_Swxx(X, w, j))
+            copyto!(α, j, 1); copyto!(α, j, 0)
         end
-        Swxxj = Swxx[j]
-        new_α = softtreshold(v, λj) / Swxxj
-        r = update_r(X, r, last_α - new_α, j)
-
-        maxΔ = max(maxΔ, Swxxj * (last_α - new_α)^2)
-        copyto!(α, j, new_α)
     end
 
     # GEI and genetic effects
@@ -1303,53 +1262,24 @@ function cycle(
         v1 = compute_grad(G, w, r, j)
         v2 = compute_grad(D, G, w, r, j)
 
-        if j in β.nzind
-            last_β = β[j]
-            v1 += last_β * Swgg[j]
-        else
-            # Adding a new variable to the model
+        if j in β.nzind && j ∉ γ.nzind
+            # Adding a new GEI to the model
+            abs(v2) <= rho * λj && continue
+            kkt_check = false
+            copyto!(γ, j, 1); copyto!(γ, j, 0)
+        elseif j ∉ β.nzind
+            # Adding a new main effect to the model
             norm([v1, softtreshold(v2, rho * λj)]) <= sqrt(2) * (1 - rho) * λj && continue
             kkt_check = false
-            last_β, β[j] = 0, 1
-            copyto!(Swgg, j, compute_Swxx(G, w, j))
+            copyto!(β, j, 1); copyto!(β, j, 0)
+
+            # Adding a new GEI to the model
+            abs(v2) <= rho * λj && continue
+            copyto!(γ, j, 1); copyto!(γ, j, 0)
         end
-
-        Swggj = Swgg[j]
-        if j in γ.nzind
-            last_γ = γ[j]
-            v2 += last_γ * Swdg[j]
-        else
-            # Adding a new variable to the model
-            if v2 != zero(v2)
-                kkt_check = false
-                last_γ, γ[j] = 0, 1
-                copyto!(Swdg, j, compute_Swxx(D, G, w, j))
-            else
-                # Update β only
-                new_β = softtreshold(v1, sqrt(2) * (1 - rho) * λj) / Swggj
-                r = update_r(G, r, last_β - new_β, j)
-
-                maxΔ = max(maxΔ, Swggj * (last_β - new_β)^2)
-                copyto!(β, j, new_β)
-                continue
-            end
-        end
-
-        # Update β and γ
-        Swdgj = Swdg[j]
-        new_γ = softtreshold(v2, rho * λj) / (Swdgj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β)))
-        r = update_r(D, G, r, last_γ - new_γ, j)
-
-        v = compute_grad(G, w, r, j) + last_β * Swggj
-        new_β = v / (Swggj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β)))
-        r = update_r(G, r, last_β - new_β, j)
-
-        maxΔ = max(maxΔ, Swggj * (last_β - new_β)^2, Swdgj * (last_γ - new_γ)^2)
-        copyto!(β, j, new_β), copyto!(γ, j, new_γ)
-
     end
 
-    return(maxΔ, kkt_check)
+    return(kkt_check)
 end
 
 function cycle(
@@ -1459,7 +1389,7 @@ end
 function lambda_seq(
     r::Vector{T}, 
     X::Matrix{T},
-    G::Union{Matrix{T}, SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int}, UnitRange{Int}}}},
+    G::AbstractMatrix{T},
     D::Union{Vector{T}, Nothing}; 
     p_fX::Vector{T},
     p_fG::Vector{T},
@@ -1990,14 +1920,14 @@ function P(α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, p_fX::
 end
 
 # Compute strongrule for the lasso
-function compute_strongrule(dλ::T, p_fX::Vector{T}, p_fG::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, X::Matrix{T}, G::Union{Matrix{T},SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}}, y::AbstractArray, μ::Vector{T}) where T
+function compute_strongrule(dλ::T, p_fX::Vector{T}, p_fG::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, X::Matrix{T}, G::AbstractMatrix{T}, y::AbstractArray, μ::Vector{T}) where T
     nzαind = copy(α.nzind)
     for j in 1:length(α)
         j in α.nzind && continue
         c = compute_prod(X, y, μ, j)
         abs(c) <= dλ * p_fX[j] && continue
         
-        # Force a new variable to the model
+        # Add a new variable to the strong set
         sort!(push!(nzαind, j))
     end
     
@@ -2007,22 +1937,22 @@ function compute_strongrule(dλ::T, p_fX::Vector{T}, p_fG::Vector{T}; α::Sparse
         c = compute_prod(G, y, μ, j)
         abs(c) <= dλ * p_fG[j] && continue
         
-        # Force a new variable to the model
+        # Add a new variable to the strong set
         sort!(push!(nzβind, j))
     end
 
     return nzαind, nzβind
 end
 
-# Compute strongrule for the group lasso + lasso (CAP)
-function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vector{T}, D::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, X::Matrix{T}, G::Union{Matrix{T},SubArray{T, 2, SnpLinAlg{T}, Tuple{Vector{Int64}, UnitRange{Int64}}}}, y::AbstractArray, μ::Vector{T}) where T
+# Compute strongrule for the sparse group lasso
+function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vector{T}, D::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, X::Matrix{T}, G::AbstractMatrix{T}, y::AbstractArray, μ::Vector{T}) where T
     nzαind = copy(α.nzind)
     for j in 1:length(α)
         j in α.nzind && continue
         c = compute_prod(X, y, μ, j)
         abs(c) <= dλ * p_fX[j] && continue
         
-        # Force a new variable to the model
+        # Add a new variable to the strong set
         sort!(push!(nzαind, j))
     end
     
@@ -2033,7 +1963,7 @@ function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vec
         c2 = softtreshold(compute_prod(D, G, y, μ, j), rho * λ * p_fG[j])
         norm([c1, c2]) <= sqrt(2) * (1 - rho) * dλ * p_fG[j] && continue
         
-        # Force a new group to the model
+        # Add a new group to the strong set
         sort!(push!(nzβind, j))
     end
 
