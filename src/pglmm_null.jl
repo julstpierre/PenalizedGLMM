@@ -27,7 +27,7 @@ function pglmm_null(
     GEIvar::Union{Nothing,AbstractString} = nothing,
     GEIkin::Bool = false,
     tol::T = 1e-5,
-    maxiter::Integer = 50,
+    maxiter::Integer = 500,
     method::Symbol  = :REML,
     idvar::Union{Nothing, Symbol, String} = nothing,
     reformula::Union{Nothing, FormulaTerm} = nothing,
