@@ -45,7 +45,7 @@ function pglmm(
 
     # # keyword arguments
     # snpmodel = ADDITIVE_MODEL
-    # snpinds = nothing
+    # # snpinds = nothing
     # irls_tol = 1e-7
     # irls_maxiter = 500
     # nlambda = 100
@@ -898,8 +898,6 @@ function cd_lasso(
 
     # Assess convergence of coordinate descent
     @assert converged "Coordinate descent failed to converge in $cd_maxiter iterations at λ = $λ"
-
-    return(Swxx, Swgg, Swdg)
 end
 
 function cd_lasso(
@@ -1204,6 +1202,7 @@ function cycle(
             abs(v) <= λj && continue
             kkt_check = false
             copyto!(α, j, 1); copyto!(α, j, 0)
+            copyto!(Swxx, j, compute_Swxx(X, w, j))
         end
     end
 
@@ -1217,6 +1216,7 @@ function cycle(
             abs(v) <= λj && continue
             kkt_check = false
             copyto!(β, j, 1); copyto!(β, j, 0)
+            copyto!(Swgg, j, compute_Swxx(G, w, j))
         end
     end
 
@@ -1259,6 +1259,7 @@ function cycle(
             abs(v) <= λj && continue
             kkt_check = false
             copyto!(α, j, 1); copyto!(α, j, 0)
+            copyto!(Swxx, j, compute_Swxx(X, w, j))
         end
     end
 
@@ -1274,15 +1275,18 @@ function cycle(
             abs(v2) <= rho * λj && continue
             kkt_check = false
             copyto!(γ, j, 1); copyto!(γ, j, 0)
+            copyto!(Swdg, j, compute_Swxx(D, G, w, j))
         elseif j ∉ β.nzind
             # Adding a new main effect to the model
             norm([v1, softtreshold(v2, rho * λj)]) <= sqrt(2) * (1 - rho) * λj && continue
             kkt_check = false
             copyto!(β, j, 1); copyto!(β, j, 0)
+            copyto!(Swgg, j, compute_Swxx(G, w, j))
 
             # Adding a new GEI to the model
             abs(v2) <= rho * λj && continue
             copyto!(γ, j, 1); copyto!(γ, j, 0)
+            copyto!(Swdg, j, compute_Swxx(D, G, w, j))
         end
     end
 
