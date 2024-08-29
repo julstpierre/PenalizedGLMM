@@ -657,7 +657,7 @@ function pglmm_fit(
         while true
 
             # Update random effects vector δ
-            update_δ(Normal(), U = U, Ytilde = Ytilde, y = y, w = w, r = r, δ = δ, eigvals = eigvals, criterion = :coef, μ = μ)
+            update_δ(Normal(), U = U, Ytilde = Ytilde, y = y, w = w, r = r, δ = δ, Swuu = Swuu, eigvals = eigvals, criterion = :coef, μ = μ)
 
             # Run coordinate descent inner loop to update β
             cd_lasso(Normal(), D, X, G, λ, rho; Ytilde = Ytilde, Swxx = Swxx, Swgg = Swgg, Swdg =  Swdg, y = y, w = w, r = r, α = α, β = β, δ = δ, γ = γ, p_fX = p_fX, p_fG = p_fG, eigvals = eigvals, criterion = criterion, phi = phi)
