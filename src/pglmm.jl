@@ -129,7 +129,7 @@ function pglmm(
     intercept = all(nullmodel.X[:,1] .== 1)
     X, muX, sX, α = standardizeX(nullmodel.X, standardize_X, nullmodel.α, intercept)
     ind_E = !isnothing(nullmodel.ind_E) ? nullmodel.ind_E .- intercept : nothing
-    D, muD, sD = !isnothing(ind_E) ? (vec(X[:, nullmodel.ind_E]), muX[ind_E], sX[ind_E]) : repeat([nothing], 3)
+    E, muE, sE = !isnothing(ind_E) ? (vec(X[:, nullmodel.ind_E]), muX[ind_E], sX[ind_E]) : repeat([nothing], 3)
 
     # Penalty factors
     p_fX = zeros(k); p_fG = ones(p)
@@ -138,25 +138,25 @@ function pglmm(
     rho = !isnothing(ind_E) ? rho : 0
     @assert all(0 .<= rho .< 1) "rho parameter must be in the range (0, 1]."
     x = length(rho)
-    λ_seq = !isnothing(lambda) ? lambda : [lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
+    λ_seq = !isnothing(lambda) ? lambda : [lambda_seq(y - μ, X, G, E; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
    
     # Fit penalized model for each value of rho
     # λ_seq, path = Vector{typeof(μ)}(undef, x), Array{NamedTuple}(undef, x)
     # Threads.@threads for j in 1:x
-    #        λ_seq[j] = lambda_seq(y - μ, X, G, D; p_fX = p_fX, p_fG = p_fG, rho = rho[j])
-    #        path[j] = pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter)
+    #        λ_seq[j] = lambda_seq(y - μ, X, G, E; p_fX = p_fX, p_fG = p_fG, rho = rho[j])
+    #        path[j] = pglmm_fit(nullmodel.family, Ytilde, y, X, G, U, E, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(zeros(k)), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U' * b, p_fX, p_fG, λ_seq[j], rho[j], nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter)
     # end
 
     # !!!!!!! To erase !!!!!!
     # r = Ytilde - nullmodel.η; α = sparse(α); β = sparse(zeros(p)); γ = sparse(zeros(p)); δ = U'b; U = UH; λ_seq = λ_seq[1]; rho = rho[1]; phi = nullmodel.φ
 
     # Fit penalized model for each value of rho
-    path = [pglmm_fit(nullmodel.family, Ytilde, y, X, G, UH, D, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(α), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U'b, nullmodel.φ, p_fX, p_fG, λ_seq[j], rho[j], nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, upper_bound) for j in 1:x]
+    path = [pglmm_fit(nullmodel.family, Ytilde, y, X, G, UH, E, nulldev, r = Ytilde - nullmodel.η, μ, α = sparse(α), β = sparse(zeros(p)), γ = sparse(zeros(p)), δ = U'b, nullmodel.φ, p_fX, p_fG, λ_seq[j], rho[j], nlambda, w, eigvals, verbose, criterion, earlystop, irls_tol, irls_maxiter, upper_bound) for j in 1:x]
 
     # Separate intercept from coefficients
     a0, alphas = intercept ? ([path[j].alphas[1,:] for j in 1:x], [path[j].alphas[2:end,:] for j in 1:x]) : ([nothing for j in 1:x], [path[j].alphas for j in 1:x])
     betas = [path[j].betas for j in 1:x]
-    gammas = !isnothing(D) ? [path[j].gammas for j in 1:x] : [nothing for j in 1:x]
+    gammas = !isnothing(E) ? [path[j].gammas for j in 1:x] : [nothing for j in 1:x]
 
     # Return coefficients on original scale
     if isnothing(gammas[1])
@@ -185,12 +185,12 @@ function pglmm(
     # Return lasso path
     if !isnothing(ind_E)
         if length(rho) == 1
-            pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, nullmodel.φ, nullmodel.τ, intercept, rho[1])
+            pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, nullmodel.φ, nullmodel.τ, intercept, rho[1], nullmodel.D)
         else
-            [pglmmPath(nullmodel.family, a0[j], alphas[j], betas[j], gammas[j], nulldev, path[j].pct_dev, path[j].λ, 0, path[j].fitted_values, y, nullmodel.φ, nullmodel.τ, intercept, rho[j]) for j in 1:x]
+            [pglmmPath(nullmodel.family, a0[j], alphas[j], betas[j], gammas[j], nulldev, path[j].pct_dev, path[j].λ, 0, path[j].fitted_values, y, nullmodel.φ, nullmodel.τ, intercept, rho[j], nullmodel.D) for j in 1:x]
         end
     else
-        pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, nullmodel.φ, nullmodel.τ, intercept, nothing)
+        pglmmPath(nullmodel.family, a0[1], alphas[1], betas[1], gammas[1], nulldev, path[1].pct_dev, path[1].λ, 0, path[1].fitted_values, y, nullmodel.φ, nullmodel.τ, intercept, nothing, nullmodel.D)
     end
 end
 
@@ -206,7 +206,7 @@ function pglmm_fit(
     X::Matrix{T},
     G::AbstractMatrix{T},
     U::AbstractMatrix{T},
-    D::Nothing,
+    E::Nothing,
     nulldev::T,
     μ::Vector{T},
     phi::T,
@@ -344,7 +344,7 @@ function pglmm_fit(
     X::Matrix{T},
     G::AbstractMatrix{T},
     U::AbstractMatrix{T},
-    D::Nothing,
+    E::Nothing,
     nulldev::T,
     μ::Vector{T},
     phi::T,
@@ -458,7 +458,7 @@ function pglmm_fit(
     X::Matrix{T},
     G::AbstractMatrix{T},
     U::AbstractMatrix{T},
-    D::Vector{T},
+    E::Vector{T},
     nulldev::T,
     μ::Vector{T},
     phi::T,
@@ -502,7 +502,7 @@ function pglmm_fit(
         dλ = 2 * λ_seq[i] - λ_seq[max(1, i-1)]
 
         # Check strong rule
-        nzαind, nzβind = compute_strongrule(dλ, λ_seq[max(1, i-1)], rho, p_fX, p_fG, D, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
+        nzαind, nzβind = compute_strongrule(dλ, λ_seq[max(1, i-1)], rho, p_fX, p_fG, E, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
 
         # Initialize objective function and save previous deviance ratio
         dev = loss = convert(T, Inf)
@@ -516,7 +516,7 @@ function pglmm_fit(
 
             # Run coordinate descent inner loop to update β
             β_last = β
-            Swxx, Swgg, Swdg = cd_lasso(Binomial(), D, X, G, λ, rho; Ytilde = Ytilde, y = y, w = w, r = r, α = α, β = β, δ = δ, γ = γ, p_fX = p_fX, p_fG = p_fG, eigvals = eigvals, criterion = criterion, phi = phi)
+            Swxx, Swgg, Swdg = cd_lasso(Binomial(), E, X, G, λ, rho; Ytilde = Ytilde, y = y, w = w, r = r, α = α, β = β, δ = δ, γ = γ, p_fX = p_fX, p_fG = p_fG, eigvals = eigvals, criterion = criterion, phi = phi)
 
             # Update μ and w
             μ, w = updateμ(Binomial(), r, Ytilde)
@@ -552,18 +552,18 @@ function pglmm_fit(
             # Check KKT conditions on the strong set at last iteration
             if converged
                 verbose && println("Checking KKT conditions on the strong set.")
-                converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
+                converged = cycle(E, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
                 !converged && verbose && println("KKT conditions not met, refitting the model.")
             end
 
             if converged
                 verbose && println("Checking KKT conditions on all predictors.")
-                converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
+                converged = cycle(E, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
 
                 if !converged
                     # Recalculate strong rule
                     verbose && println("KKT conditions not met, updating strong set and refitting the model.")
-                    nzαind, nzβind = compute_strongrule(dλ, λ_seq[max(1, i-1)], rho, p_fX, p_fG, D, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
+                    nzαind, nzβind = compute_strongrule(dλ, λ_seq[max(1, i-1)], rho, p_fX, p_fG, E, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
                 end
             end
 
@@ -597,7 +597,7 @@ function pglmm_fit(
     X::Matrix{T},
     G::AbstractMatrix{T},
     U::AbstractMatrix,
-    D::Vector{T},
+    E::Vector{T},
     nulldev::T,
     μ::Vector{T},
     phi::T,
@@ -649,7 +649,8 @@ function pglmm_fit(
         dλ = 2 * λ_seq[i] - λ_seq[max(1, i-1)]
 
         # Check strong rule
-        nzαind, nzβind = compute_strongrule(dλ, λ_seq[max(1, i-1)], rho, p_fX, p_fG, D, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
+        delete_coeffs!(α, β, γ)
+        nzαind, nzβind = compute_strongrule(dλ, λ_seq[max(1, i-1)], rho, p_fX, p_fG, E, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
         dev = convert(T, Inf)
         last_dev_ratio = dev_ratio
 
@@ -660,7 +661,7 @@ function pglmm_fit(
             update_δ(Normal(), U = U, Ytilde = Ytilde, y = y, w = w, r = r, δ = δ, Swuu = Swuu, eigvals = eigvals, criterion = :coef, μ = μ)
 
             # Run coordinate descent inner loop to update β
-            cd_lasso(Normal(), D, X, G, λ, rho; Ytilde = Ytilde, Swxx = Swxx, Swgg = Swgg, Swdg =  Swdg, y = y, w = w, r = r, α = α, β = β, δ = δ, γ = γ, p_fX = p_fX, p_fG = p_fG, eigvals = eigvals, criterion = criterion, phi = phi)
+            cd_lasso(Normal(), E, X, G, λ, rho; Ytilde = Ytilde, Swxx = Swxx, Swgg = Swgg, Swdg =  Swdg, y = y, w = w, r = r, α = α, β = β, δ = δ, γ = γ, p_fX = p_fX, p_fG = p_fG, eigvals = eigvals, criterion = criterion, phi = phi)
 
             # Update μ
             μ = updateμ(Normal(), r, Ytilde)
@@ -670,17 +671,17 @@ function pglmm_fit(
             
             # Check KKT conditions on the strong set at last iteration
             verbose && println("Checking KKT conditions on the strong set.")
-            converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
+            converged = cycle(E, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG, nzαind = nzαind, nzβind = nzβind)
             !converged && verbose && println("KKT conditions not met, refitting the model.")
 
             if converged
                 verbose && println("Checking KKT conditions on all predictors.")
-                converged = cycle(D, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
+                converged = cycle(E, X, G, λ, rho, Val(true), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
 
                 if !converged
                     # Recalculate strong rule
                     verbose && println("KKT conditions not met, updating strong set and refitting the model.")
-                    nzαind, nzβind = compute_strongrule(dλ, λ_seq[max(1, i-1)], rho, p_fX, p_fG, D, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
+                    nzαind, nzβind = compute_strongrule(dλ, λ_seq[max(1, i-1)], rho, p_fX, p_fG, E, α = α, β = β, γ = γ, X = X, G = G, y = y, μ = μ)
                 end
             end
 
@@ -841,7 +842,7 @@ end
 function cd_lasso(
     # positional arguments
     family::Normal,
-    D::Vector{T},
+    E::Vector{T},
     X::Matrix{T},
     G::AbstractMatrix{T},
     λ::T,
@@ -874,7 +875,7 @@ function cd_lasso(
     for cd_iter in 1:cd_maxiter
 
         # Perform one coordinate descent cycle
-        maxΔ, = cycle(D, X, G, λ, rho, Val(false), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
+        maxΔ, = cycle(E, X, G, λ, rho, Val(false), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
 
         # Check termination condition before last iteration
         if criterion == :obj
@@ -903,7 +904,7 @@ end
 function cd_lasso(
     # positional arguments
     family::Binomial,
-    D::Vector{T},
+    E::Vector{T},
     X::Matrix{T},
     G::AbstractMatrix{T},
     λ::T,
@@ -944,7 +945,7 @@ function cd_lasso(
 
     # GEI effects
     for j in γ.nzind
-        @inbounds Swdg[j] = compute_Swxx(D, G, w, j)
+        @inbounds Swdg[j] = compute_Swxx(E, G, w, j)
     end
 
 
@@ -952,7 +953,7 @@ function cd_lasso(
     for cd_iter in 1:cd_maxiter
 
         # Perform one coordinate descent cycle
-        maxΔ, = cycle(D, X, G, λ, rho, Val(false), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
+        maxΔ, = cycle(E, X, G, λ, rho, Val(false), r = r, α = α, β = β, γ = γ, Swxx = Swxx, Swgg = Swgg, Swdg = Swdg, w = w, p_fX = p_fX, p_fG = p_fG)
 
         # Check termination condition before last iteration
         if criterion == :obj
@@ -1108,7 +1109,7 @@ end
 
 function cycle(
     # positional arguments
-    D::Vector{T},
+    E::Vector{T},
     X::Matrix{T},
     G::AbstractMatrix{T},
     λ::T,
@@ -1148,10 +1149,10 @@ function cycle(
         # Update GEI effect
         last_γ, last_β = γ[j], β[j]
         Swdgj = Swdg[j]
-        v = compute_grad(D, G, w, r, j) + last_γ * Swdgj
+        v = compute_grad(E, G, w, r, j) + last_γ * Swdgj
         if abs(v) > rho * λj
             new_γ = softtreshold(v, rho * λj) / (Swdgj + sqrt(2) * (1 - rho) * λj / norm((last_γ, last_β)))
-            r = update_r(D, G, r, last_γ - new_γ, j)
+            r = update_r(E, G, r, last_γ - new_γ, j)
 
             maxΔ = max(maxΔ, Swdgj * (last_γ - new_γ)^2)
             copyto!(γ, j, new_γ)
@@ -1225,7 +1226,7 @@ end
 
 function cycle(
     # positional arguments
-    D::Vector{T},
+    E::Vector{T},
     X::Matrix{T},
     G::AbstractMatrix{T},
     λ::T,
@@ -1268,14 +1269,14 @@ function cycle(
     for j in rangeβ
         λj = λ * p_fG[j]
         v1 = compute_grad(G, w, r, j)
-        v2 = compute_grad(D, G, w, r, j)
+        v2 = compute_grad(E, G, w, r, j)
 
         if j in β.nzind && j ∉ γ.nzind
             # Adding a new GEI to the model
             abs(v2) <= rho * λj && continue
             kkt_check = false
             copyto!(γ, j, 1); copyto!(γ, j, 0)
-            copyto!(Swdg, j, compute_Swxx(D, G, w, j))
+            copyto!(Swdg, j, compute_Swxx(E, G, w, j))
         elseif j ∉ β.nzind
             # Adding a new main effect to the model
             norm([v1, softtreshold(v2, rho * λj)]) <= sqrt(2) * (1 - rho) * λj && continue
@@ -1286,7 +1287,7 @@ function cycle(
             # Adding a new GEI to the model
             abs(v2) <= rho * λj && continue
             copyto!(γ, j, 1); copyto!(γ, j, 0)
-            copyto!(Swdg, j, compute_Swxx(D, G, w, j))
+            copyto!(Swdg, j, compute_Swxx(E, G, w, j))
         end
     end
 
@@ -1361,22 +1362,23 @@ end
 modeltype(::Normal) = "Least Squares"
 modeltype(::Binomial) = "Logistic"
 
-mutable struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray, T<:AbstractFloat, D<:AbstractArray}
+mutable struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray, T<:AbstractFloat, C<:AbstractArray, E<:AbstractArray}
     family::F
     a0::A                                       # intercept values for each solution
     alphas::B                                   # coefficient values for each solution
     betas::B                                
     gammas::Union{Nothing, B}
     null_dev::T                                 # Null deviance of the model
-    pct_dev::D                                 # R^2 values for each solution
-    lambda::D                                   # lambda values corresponding to each solution
+    pct_dev::C                                 # R^2 values for each solution
+    lambda::C                                   # lambda values corresponding to each solution
     npasses::Int                                # actual number of passes over the data for all lamda values
     fitted_values                               # fitted_values
-    y::Union{Vector{Int}, D}                    # outcome vector
+    y::Union{Vector{Int}, C}                    # outcome vector
     φ::T                                        # dispersion parameters
-    τ::D                                        # estimated variance components
+    τ::C                                        # estimated variance components
     intercept::Bool                             # boolean for intercept
     rho::Union{Nothing, Real}                   # rho tuninng parameter
+    D::Union{Nothing, E}
 end
 
 function show(io::IO, g::pglmmPath)
@@ -1401,7 +1403,7 @@ function lambda_seq(
     r::Vector{T}, 
     X::Matrix{T},
     G::AbstractMatrix{T},
-    D::Union{Vector{T}, Nothing}; 
+    E::Union{Vector{T}, Nothing}; 
     p_fX::Vector{T},
     p_fG::Vector{T},
     rho::Real,
@@ -1410,7 +1412,7 @@ function lambda_seq(
 
     λ_min_ratio = (length(r) < size(G, 2) ? 1e-2 : 1e-4)
     λ_max = lambda_max(nothing, X, r, p_fX)
-    λ_max = lambda_max(D, G, r, p_fG, λ_max, rho = rho)
+    λ_max = lambda_max(E, G, r, p_fG, λ_max, rho = rho)
     λ_min = λ_max * λ_min_ratio
     λ_step = log(λ_min_ratio)/(nlambda - 1)
     λ_seq = exp.(collect(log(λ_max+100*eps(λ_max)):λ_step:log(λ_min)))
@@ -1419,7 +1421,7 @@ function lambda_seq(
 end
 
 # Function to compute λ_max for the lasso
-function lambda_max(D::Nothing, X::AbstractMatrix{T}, r::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T); kwargs...) where T
+function lambda_max(E::Nothing, X::AbstractMatrix{T}, r::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T); kwargs...) where T
     seq = findall(!iszero, p_f)
     for j in seq
         x = abs(compute_grad(X, r, j))
@@ -1431,11 +1433,11 @@ function lambda_max(D::Nothing, X::AbstractMatrix{T}, r::AbstractVector{T}, p_f:
 end
 
 # Function to compute λ_max for the group lasso
-function lambda_max(D::AbstractVector{T}, X::AbstractMatrix{T}, r::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T); rho::Real) where T
+function lambda_max(E::AbstractVector{T}, X::AbstractMatrix{T}, r::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T); rho::Real) where T
 
     seq = findall(!iszero, p_f)
     for j in seq
-        x = compute_max(D, X, r, j, rho)
+        x = compute_max(E, X, r, j, rho)
         if x > λ_max
             λ_max = x
         end
@@ -1501,127 +1503,122 @@ end
 
 # Predict phenotype
 function predict(path, 
-                  covfile::AbstractString,
-                  grmfile::AbstractString,
+                  formula::FormulaTerm,
+                  covfile::Union{DataFrame, AbstractString},
                   plinkfile::Union{Nothing, AbstractString} = nothing;
                   # keyword arguments
+                  grmfile::Union{Nothing, AbstractString} = nothing,
                   snpfile::Union{Nothing, AbstractString} = nothing,
                   snpmodel = ADDITIVE_MODEL,
                   snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                  covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                  covrowtraininds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                  covars::Union{Nothing,AbstractVector{<:String}} = nothing, 
+                  testrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  trainrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  idvar::Union{Nothing, Symbol, String} = nothing,
                   geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                  grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   M::Union{Nothing, Vector{Any}} = nothing,
                   s::Union{T, Vector{T}, Nothing} = nothing,
                   fixed_effects_only::Bool = false,
                   GEIvar::Union{Nothing,AbstractString} = nothing,
                   GEIkin::Bool = true,
+                  GRM::Union{Nothing, Matrix{T}, BlockDiagonal{T, Matrix{T}}} = nothing,
+                  reformula::Union{Nothing, FormulaTerm} = nothing,
+                  standardize_Z::Bool = false,
                   outtype = :response
                  ) where T
 
     if isnothing(s)
-        [predict(path[j], 
+        [predict(path[j],
+                  formula, 
                   covfile,
-                  grmfile,
                   plinkfile;
                   snpfile = snpfile,
+                  grmfile = grmfile,
                   snpmodel = snpmodel,
                   snpinds = snpinds,
-                  covrowinds = covrowinds,
-                  covrowtraininds = covrowtraininds,
-                  covars = covars, 
+                  testrowinds = testrowinds,
+                  trainrowinds = trainrowinds,
+                  idvar = idvar,
                   geneticrowinds = geneticrowinds,
-                  grmrowinds = grmrowinds,
                   grmcolinds = grmcolinds,
                   M = M,
                   s = 1:size(path[j].betas, 2),
                   fixed_effects_only = fixed_effects_only,
                   GEIvar = GEIvar,
                   GEIkin = GEIkin,
+                  GRM = GRM,
+                  reformula = reformula,
+                  standardize_Z = standardize_Z,
                   outtype = outtype
                  ) for j in 1:length(path)] |> x-> reduce(hcat,x)
     else
-        [predict(path[s[j].rho.index], 
+        [predict(path[s[j].rho.index],
+                  formula, 
                   covfile,
-                  grmfile,
                   plinkfile;
                   snpfile = snpfile,
+                  grmfile = grmfile,
                   snpmodel = snpmodel,
                   snpinds = snpinds,
-                  covrowinds = covrowinds,
-                  covrowtraininds = covrowtraininds,
-                  covars = covars, 
+                  testrowinds = testrowinds,
+                  trainrowinds = trainrowinds,
+                  idvar = idvar,
                   geneticrowinds = geneticrowinds,
-                  grmrowinds = grmrowinds,
                   grmcolinds = grmcolinds,
                   M = M,
                   s = s[j].lambda.index,
                   fixed_effects_only = fixed_effects_only,
                   GEIvar = GEIvar,
                   GEIkin = GEIkin,
+                  GRM = GRM,
+                  reformula = reformula,
+                  standardize_Z = standardize_Z,
                   outtype = outtype
                  ) for j in 1:length(s)] |> x-> reduce(hcat,x)
     end
 end
 
-function predict(path::pglmmPath, 
-                  covfile::AbstractString,
-                  grmfile::AbstractString,
+function predict(path::pglmmPath,
+                  formula::FormulaTerm, 
+                  covfile::Union{DataFrame, AbstractString},
                   plinkfile::Union{Nothing, AbstractString} = nothing;
                   # keyword arguments
+                  grmfile::Union{Nothing, AbstractString} = nothing,
                   snpfile::Union{Nothing, AbstractString} = nothing,
                   snpmodel = ADDITIVE_MODEL,
                   snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                  covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                  covrowtraininds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                  covars::Union{Nothing,AbstractVector{<:String}} = nothing, 
+                  testrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  trainrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+                  idvar::Union{Nothing, Symbol, String} = nothing,
                   geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
-                  grmrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   grmcolinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
                   M::Union{Nothing, Vector{Any}} = nothing,
                   s::Union{Nothing,<:Integer,AbstractVector{<:Integer}} = nothing,
                   fixed_effects_only::Bool = false,
                   GEIvar::Union{Nothing,AbstractString} = nothing,
                   GEIkin::Bool = true,
+                  GRM::Union{Nothing, Matrix{T}, BlockDiagonal{T, Matrix{T}}} = nothing,
+                  reformula::Union{Nothing, FormulaTerm} = nothing,
+                  standardize_Z::Bool = false,
                   outtype = :response
-                 )
+                 ) where T
     
     #--------------------------------------------------------------
-    # Read covariate file
+    # Read covariate and grm file
     #--------------------------------------------------------------
-    covdf = CSV.read(covfile, DataFrame)
+    covdf = isa(covfile, AbstractString) ? CSV.read(covfile, DataFrame) : isa(covfile, DataFrame) ? covfile : error("covfile is not a DataFrame of AbstractString")
+    testrowinds = isnothing(testrowinds) ? (1:nrow(covdf)) : testrowinds
 
-    if !isnothing(covrowinds)
-        covdf = covdf[covrowinds,:]
-    end 
+    X = modelmatrix(glm(formula, covdf[testrowinds,:], path.family))
+    X = all(X[:,1] .== 1)  ? X[:, 2:end] : X
+    nX, k = size(X)
 
-    if !isnothing(covars)
-        covdf = covdf[:, covars]
-    end 
-
-    X = Matrix(covdf)
-    nX, k =size(X)
-
-    #--------------------------------------------------------------
-    # Read file containing the m x (N-m) kinship matrix between m test and (N-m) training subjects
-    #--------------------------------------------------------------
-    GRM = open(GzipDecompressorStream, grmfile, "r") do stream
-        Symmetric(Matrix(CSV.read(stream, DataFrame)))
+    if !isnothing(grmfile)
+        GRM = open(GzipDecompressorStream, grmfile, "r") do stream
+            Symmetric(Matrix(CSV.read(stream, DataFrame)))
+        end
     end
 
-    if !isnothing(grmrowinds)
-        GRM = GRM[grmrowinds, :]
-    end
-
-    if !isnothing(grmcolinds)
-        GRM = GRM[:, grmcolinds]
-    end
-
-    @assert nX == size(GRM, 1) "GRM and covariates matrix must have same number of rows."
-    
     #--------------------------------------------------------------
     # Read genotype file
     #--------------------------------------------------------------
@@ -1651,52 +1648,95 @@ function predict(path::pglmmPath,
 
     # Initialize number of subjects and predictors (including intercept)
     nG, p = size(G)
-    @assert nG == size(GRM, 1) "GRM and genotype matrix must have same number of rows."
+    @assert nG == nX "covariate and genotype matrices must have same number of rows."
     
     #--------------------------------------------------------------
     # Compute predictions
     #--------------------------------------------------------------
     # Create list of similarity matrices
-    V = push!(Any[], GRM)
+    if !isnothing(idvar)
+        m = length(unique(covdf[:, idvar]))
+        L = [ones(sum(covdf[:, idvar] .== unique(covdf[:, idvar])[i]), 1) for i in 1:m] |> x-> BlockDiagonal(x)
+    else
+        L = Diagonal(ones(size(GRM, 1)))
+    end
+    V = push!(Any[], Matrix(L)[testrowinds, :] * GRM * Matrix(L)[trainrowinds, :]')
 
     # Add GEI similarity matrix
     if !isnothing(GEIvar)
-        D = covdf[:, GEIvar]
+        E = covdf[testrowinds, GEIvar]
         if GEIkin
             @assert length(path.τ) >= 2 "Only one variance component has been estimated under the null model."
-        Dtrain = CSV.read(covfile, DataFrame)[covrowtraininds, GEIvar]
-            V_E = D * Dtrain'
-            for j in findall(x -> x == 0, Dtrain), i in findall(x -> x == 0, D)  
+        Etrain = covdf[trainrowinds, GEIvar]
+            V_E = E * Etrain'
+            for j in findall(x -> x == 0, Etrain), i in findall(x -> x == 0, E)  
                     V_E[i, j] = 1 
             end
-            push!(V, sparse(GRM .* V_E))
+            push!(V, sparse(V[1] .* V_E))
         end
     end
 
-    # Add variance components in the model
-    if !isnothing(M) 
-        [push!(V, M[i]) for i in 1:length(M)] 
-    end
-
     # Covariance matrix between test and training subjects
-    Σ_12 = sum(path.τ .* V)
+    Σ = sum(path.τ .* V)
 
     # Number of predictions to compute. User can provide index s for which to provide predictions, 
     # rather than computing predictions for the whole path.
     s = isnothing(s) ? (1:size(path.betas, 2)) : s
 
-    # Linear predictor
-    η = path.a0[s]' .+ X * path.alphas[:,s] .+ G * path.betas[:,s]
+    #--------------------------------
+    # Linear predictor fixed effects
+    #--------------------------------
+    # Main effects
+    Gbeta = reduce(hcat, [G[:, path.betas[:, i].nzind] * path.betas[:, i].nzval for i in s])
+    η = path.a0[s]' .+ X * path.alphas[:,s] .+ Gbeta
 
+    # GEI effects
     if !isnothing(GEIvar)
-        η += (D .* G) * path.gammas[:,s]
+        η += reduce(hcat, [(E .* G[:, path.gammas[:, i].nzind]) * path.gammas[:, i].nzval for i in s])
+    end
+
+    #--------------------------------------------------------------
+    # Longitudinal data
+    #--------------------------------------------------------------
+    if !isnothing(reformula)
+
+        @assert !isnothing(idvar) "idvar is missing"
+
+        # Random effect formula
+        z = modelmatrix(glm(reformula, covdf, path.family))
+        if standardize_Z
+            z = all(z[:, 1] .== 1) ? hcat(ones(size(z, 1)), z[:, 2:end] ./ sqrt.(diag(cov(z[:, 2:end])))') : z ./ sqrt.(diag(cov(z)))'
+        end
+
+        # Create BlockDiagonal matrix for each random effect
+        r, Z = size(z,2), Any[]
+        for j in 1:r
+            push!(Z, [reshape(z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], j], :, 1) for i in 1:m] |> x->BlockDiagonal(x))
+        end
+
+        # Create relatedness matrices
+        ZDZt, idx, Dvec, idx = [], 0, vech(path.D), 0
+        for j in 1:r
+            for k in j:r
+                if j == k
+                    idx += 1
+                    push!(ZDZt, BlockDiagonal(blocks(Z[j]) .* blocks(Z[j]')) * Dvec[idx])
+                else
+                    idx += 1
+                    push!(ZDZt, BlockDiagonal(blocks(Z[j]) .* blocks(Z[k]') + blocks(Z[k]) .* blocks(Z[j]')) * Dvec[idx])
+                end
+            end
+        end
+
+        Σ += Matrix(sum(ZDZt))[testrowinds, trainrowinds]
+
     end
 
     if fixed_effects_only == false
         if path.family == Binomial()
-            b = Σ_12 * (path.y .- path.fitted_values[:,s])
+            b = Σ * (path.y .- path.fitted_values[:,s])
         elseif path.family == Normal()
-            b = Σ_12 * path.φ * (path.y .- path.fitted_values[:,s])
+            b = Σ * path.φ * (path.y .- path.fitted_values[:,s])
         end
         η += b
     end
@@ -1832,10 +1872,10 @@ function compute_grad(X::AbstractMatrix{T}, w::AbstractVector{T}, r::AbstractVec
     v
 end
 
-function compute_grad(D::AbstractVector{T}, X::AbstractMatrix{T}, w::AbstractVector{T}, r::AbstractVector{T}, whichcol::Int) where T
+function compute_grad(E::AbstractVector{T}, X::AbstractMatrix{T}, w::AbstractVector{T}, r::AbstractVector{T}, whichcol::Int) where T
     v = zero(T)
     for i = 1:size(X, 1)
-        @inbounds v += D[i] * X[i, whichcol] * r[i] * w[i]
+        @inbounds v += E[i] * X[i, whichcol] * r[i] * w[i]
     end
     v
 end
@@ -1848,11 +1888,11 @@ function compute_grad(X::AbstractMatrix{T}, r::AbstractVector{T}, whichcol::Int)
     v
 end
 
-function compute_max(D::AbstractVector{T}, X::AbstractMatrix{T}, r::AbstractVector{T}, whichcol::Int, rho::Real) where T
+function compute_max(E::AbstractVector{T}, X::AbstractMatrix{T}, r::AbstractVector{T}, whichcol::Int, rho::Real) where T
     v = zeros(2)
     for i = 1:size(X, 1)
         @inbounds v[1] += X[i, whichcol] * r[i]
-        @inbounds v[2] += D[i] * X[i, whichcol] * r[i]
+        @inbounds v[2] += E[i] * X[i, whichcol] * r[i]
     end
 
     if rho == 1
@@ -1870,10 +1910,10 @@ function compute_prod(X::AbstractMatrix{T}, y::Union{AbstractVector{Int}, Abstra
     v
 end
 
-function compute_prod(D::AbstractVector{T}, X::AbstractMatrix{T}, y::Union{AbstractVector{Int}, AbstractVector{T}}, p::AbstractVector{T}, whichcol::Int) where T
+function compute_prod(E::AbstractVector{T}, X::AbstractMatrix{T}, y::Union{AbstractVector{Int}, AbstractVector{T}}, p::AbstractVector{T}, whichcol::Int) where T
     v = zero(T)
     for i = 1:size(X, 1)
-        @inbounds v += D[i] * X[i, whichcol] * (y[i] - p[i])
+        @inbounds v += E[i] * X[i, whichcol] * (y[i] - p[i])
     end
     v
 end
@@ -1886,10 +1926,10 @@ function compute_Swxx(X::AbstractMatrix{T}, w::AbstractVector{T}, whichcol::Int)
     s
 end
 
-function compute_Swxx(D::AbstractVector{T}, X::AbstractMatrix{T}, w::AbstractVector{T}, whichcol::Int) where T
+function compute_Swxx(E::AbstractVector{T}, X::AbstractMatrix{T}, w::AbstractVector{T}, whichcol::Int) where T
     s = zero(T)
     for i = 1:size(X, 1)
-        @inbounds s += (D[i] * X[i, whichcol])^2 * w[i]
+        @inbounds s += (E[i] * X[i, whichcol])^2 * w[i]
     end
     s
 end
@@ -1908,9 +1948,9 @@ function update_r(X::AbstractMatrix{T}, r::AbstractVector{T}, deltaβ::SparseVec
     r
 end
 
-function update_r(D::AbstractVector{T}, X::AbstractMatrix{T}, r::AbstractVector{T}, deltaβ::T, whichcol::Int) where T
+function update_r(E::AbstractVector{T}, X::AbstractMatrix{T}, r::AbstractVector{T}, deltaβ::T, whichcol::Int) where T
     for i = 1:size(X, 1)
-        @inbounds r[i] += D[i] * X[i, whichcol] * deltaβ
+        @inbounds r[i] += E[i] * X[i, whichcol] * deltaβ
     end
     r
 end
@@ -1963,7 +2003,7 @@ function compute_strongrule(dλ::T, p_fX::Vector{T}, p_fG::Vector{T}; α::Sparse
 end
 
 # Compute strongrule for the sparse group lasso
-function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vector{T}, D::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, X::Matrix{T}, G::AbstractMatrix{T}, y::AbstractArray, μ::Vector{T}) where T
+function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vector{T}, E::Vector{T}; α::SparseVector{T}, β::SparseVector{T}, γ::SparseVector{T}, X::Matrix{T}, G::AbstractMatrix{T}, y::AbstractArray, μ::Vector{T}) where T
     nzαind = copy(α.nzind)
     for j in 1:length(α)
         j in α.nzind && continue
@@ -1978,7 +2018,7 @@ function compute_strongrule(dλ::T, λ::T, rho::Real, p_fX::Vector{T}, p_fG::Vec
     for j in 1:length(β)
         j in β.nzind && continue
         c1 = compute_prod(G, y, μ, j)
-        c2 = softtreshold(compute_prod(D, G, y, μ, j), rho * λ * p_fG[j])
+        c2 = softtreshold(compute_prod(E, G, y, μ, j), rho * λ * p_fG[j])
         norm([c1, c2]) <= sqrt(2) * (1 - rho) * dλ * p_fG[j] && continue
         
         # Add a new group to the strong set
@@ -2010,4 +2050,16 @@ function eigenkron(A::AbstractMatrix{T}, n::Int) where T
     V = kron(v, Diagonal(ones(n)))
 
     return(values=D, vectors=V)
+end
+
+# Function to delete zero coefficients from the active set
+function delete_coeffs!(α, β)
+    αzinds = findall(α[α.nzind] .== 0); deleteat!(α.nzval, αzinds); deleteat!(α.nzind, αzinds)
+    βzinds = findall(β[β.nzind] .== 0); deleteat!(β.nzval, βzinds); deleteat!(β.nzind, βzinds)
+end
+
+function delete_coeffs!(α, β, γ)
+    αzinds = findall(α[α.nzind] .== 0); deleteat!(α.nzval, αzinds); deleteat!(α.nzind, αzinds)
+    βzinds = findall(β[β.nzind] .== 0); deleteat!(β.nzval, βzinds); deleteat!(β.nzind, βzinds)
+    γzinds = findall(γ[γ.nzind] .== 0); deleteat!(γ.nzval, γzinds); deleteat!(γ.nzind, γzinds)
 end

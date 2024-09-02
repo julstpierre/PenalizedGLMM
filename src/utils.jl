@@ -79,13 +79,15 @@ end
 
 # Function to perform half-vectorization operator
 function vech(A::AbstractMatrix{T}) where T
-    m = LinAlg.checksquare(A)
-    v = Vector{T}((m*(m+1))>>1)
-    k = 0
-    for j = 1:m, i = j:m
-        @inbounds v[k += 1] = A[i,j]
+    # Iterate over the rows and columns of the matrix
+    v = []
+    for i in 1:size(A, 1)
+        for j in i:size(A, 2)  # Start from the diagonal element
+            push!(v, A[i, j])
+        end
     end
-    return v
+
+    vec(v)
 end
 
 # Function to fill upper-diagonal matrix from a vector
