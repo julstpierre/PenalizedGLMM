@@ -40,6 +40,8 @@ function pglmm(
     criterion = :coef,
     earlystop::Bool = false,
     upper_bound::Bool = false,
+    penalty_factor_X::Union{Nothing, Vector{T}} = nothing,
+    penalty_factor_G::Union{Nothing, Vector{T}} = nothing,
     kwargs...
     ) where T
 
@@ -132,14 +134,24 @@ function pglmm(
     E, muE, sE = !isnothing(ind_E) ? (vec(X[:, nullmodel.ind_E]), muX[ind_E], sX[ind_E]) : repeat([nothing], 3)
 
     # Penalty factors
-    p_fX = zeros(k); p_fG = ones(p)
+    if isnothing(penalty_factor_X)
+        p_fX = zeros(k)
+    else
+        p_fX = penalty_factor_X
+    end 
+
+    if isnothing(penalty_factor_G)
+        p_fG = ones(p)
+    else
+        p_fG = penalty_factor_G
+    end 
 
     # Sequence of λ
     rho = !isnothing(ind_E) ? rho : 0
     @assert all(0 .<= rho .< 1) "rho parameter must be in the range (0, 1]."
     x = length(rho)
     λ_seq = !isnothing(lambda) ? lambda : [lambda_seq(y - μ, X, G, E; p_fX = p_fX, p_fG = p_fG, rho = rho[j]) for j in 1:x]
-   
+
     # Fit penalized model for each value of rho
     # λ_seq, path = Vector{typeof(μ)}(undef, x), Array{NamedTuple}(undef, x)
     # Threads.@threads for j in 1:x
@@ -1422,9 +1434,9 @@ end
 
 # Function to compute λ_max for the lasso
 function lambda_max(E::Nothing, X::AbstractMatrix{T}, r::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T); kwargs...) where T
-    seq = findall(!iszero, p_f)
+    seq = findall(x -> !iszero(x) && !isinf(x), p_f)
     for j in seq
-        x = abs(compute_grad(X, r, j))
+        x = abs(compute_grad(X, r, j)) / p_f[j]
         if x > λ_max
             λ_max = x
         end
@@ -1435,9 +1447,9 @@ end
 # Function to compute λ_max for the group lasso
 function lambda_max(E::AbstractVector{T}, X::AbstractMatrix{T}, r::AbstractVector{T}, p_f::AbstractVector{T}, λ_max::T = zero(T); rho::Real) where T
 
-    seq = findall(!iszero, p_f)
+    seq = findall(x -> !iszero(x) && !isinf(x), p_f)
     for j in seq
-        x = compute_max(E, X, r, j, rho)
+        x = compute_max(E, X, r, j, rho) / p_f[j]
         if x > λ_max
             λ_max = x
         end
