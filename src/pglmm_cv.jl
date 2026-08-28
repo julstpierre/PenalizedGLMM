@@ -6,7 +6,7 @@
     without the .bed, .fam, or .bim extensions. Moreover, bed, bim, and fam file with 
     the same `geneticfile` prefix need to exist.
 # Keyword arguments
-- `snpfile::Union{Nothing, AbstractString}`: TXT file name containing genetic data if not in PLINK format.
+- `snpfile::Union{Nothing, AbstractString}`: TXT file name containing genetic data if not in PLINK format.
 - `snpmodel`: `ADDITIVE_MODEL` (default), `DOMINANT_MODEL`, or `RECESSIVE_MODEL`.
 - `snpinds::Union{Nothing,AbstractVector{<:Integer}}`: SNP indices for bed/vcf file.
 - `geneticrowinds::Union{Nothing,AbstractVector{<:Integer}}`: sample indices for bed/vcf file.
@@ -27,14 +27,15 @@
 function pglmm_cv(
     # positional arguments
     nullformula::FormulaTerm,
-    covfile::AbstractString,
-    grmfile::AbstractString,
-    plinkfile::Union{Nothing, AbstractString} = nothing;
+    covfile::Union{DataFrame, AbstractString};
     # keyword arguments
+    grmfile::Union{Nothing, AbstractString} = nothing,
+    plinkfile::Union{Nothing, AbstractString} = nothing,
     snpfile::Union{Nothing, AbstractString} = nothing,
     snpmodel = ADDITIVE_MODEL,
     snpinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
+    GRM::Union{Nothing, Matrix{T}, BlockDiagonals.BlockDiagonal{T, Matrix{T}}} = nothing,
     grminds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     geneticrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     family::UnivariateDistribution = Binomial(),
@@ -67,6 +68,7 @@ function pglmm_cv(
         covfile = covfile,
         grmfile = grmfile,
         covrowinds = covrowinds,
+        GRM = GRM,
         grminds = grminds,
         family = family,
         link = link,
@@ -77,31 +79,33 @@ function pglmm_cv(
         )
 
     # Fit lasso model using all observations
+    modelfit_full = Vector{}(undef, length(rho))
     if nthreads == 1 || length(rho) == 1
         # Single thread
-        modelfit_full = pglmm(
-            nullmodel_full, 
-            plinkfile,
-            snpfile = snpfile,
-            snpmodel = snpmodel,
-            snpinds = snpinds,
-            geneticrowinds = geneticrowinds,
-            irls_tol = irls_tol,
-            irls_maxiter = irls_maxiter,
-            nlambda = nlambda,
-            rho = rho,
-            verbose = verbose,
-            standardize_X = standardize_X,
-            standardize_G = standardize_G,
-            criterion = criterion,
-            earlystop = earlystop,
-            method = method,
-            upper_bound = upper_bound
-            )
+        for i = eachindex(rho)
+            modelfit_full[i] = pglmm(
+                nullmodel_full,
+                plinkfile,
+                snpfile = snpfile,
+                snpmodel = snpmodel,
+                snpinds = snpinds,
+                geneticrowinds = geneticrowinds,
+                irls_tol = irls_tol,
+                irls_maxiter = irls_maxiter,
+                nlambda = nlambda,
+                rho = rho[i],
+                verbose = verbose,
+                standardize_X = standardize_X,
+                standardize_G = standardize_G,
+                criterion = criterion,
+                earlystop = earlystop,
+                method = method,
+                upper_bound = upper_bound
+                )
+        end;
     else
         # Parallel threads
-        modelfit_full = Vector{}(undef, length(rho))
-        Threads.@threads for i = 1:length(rho)
+        Threads.@threads for i = eachindex(rho)
             modelfit_full[i] = pglmm(
                 nullmodel_full, 
                 plinkfile,
@@ -125,7 +129,7 @@ function pglmm_cv(
     end
 
     # Read covariate file
-    covdf = CSV.read(covfile, DataFrame)
+    covdf = isa(covfile, AbstractString) ? CSV.read(covfile, DataFrame) : isa(covfile, DataFrame) ? covfile : error("covfile is not a DataFrame of AbstractString")
 
     # Check if covrowinds is missing
     if isnothing(covrowinds) covrowinds = 1:nrow(covdf) end
@@ -156,6 +160,7 @@ function pglmm_cv(
             nullformula,
             covfile = covfile,
             grmfile = grmfile,
+            GRM = GRM,
             covrowinds = covrowinds[foldid .!= i],
             grminds = grminds[foldid .!= i],
             family = family,
@@ -173,6 +178,7 @@ function pglmm_cv(
                 nullformula,
                 covfile = covfile,
                 grmfile = grmfile,
+                GRM = GRM,
                 covrowinds = covrowinds[foldid .!= i],
                 grminds = grminds[foldid .!= i],
                 family = family,
@@ -198,7 +204,7 @@ function pglmm_cv(
                 irls_tol = irls_tol,
                 irls_maxiter = irls_maxiter,
                 nlambda = nlambda,
-                lambda = [modelfit_full[i].lambda for i in 1:length(rho)],
+                lambda = [modelfit_full[i].lambda for i in eachindex(rho)],
                 rho = rho,
                 verbose = verbose,
                 standardize_X = standardize_X,
@@ -222,7 +228,7 @@ function pglmm_cv(
                 irls_tol = irls_tol,
                 irls_maxiter = irls_maxiter,
                 nlambda = nlambda,
-                lambda = [modelfit_full[i].lambda for i in 1:length(rho)],
+                lambda = [modelfit_full[i].lambda for i in eachindex(rho)],
                 rho = rho,
                 verbose = verbose,
                 standardize_X = standardize_X,
@@ -240,17 +246,17 @@ function pglmm_cv(
         # Single thread
         yhat = [PenalizedGLMM.predict(
             modelfit[i],
+            nullformula,
             covfile,
-            grmfile,
             plinkfile,
+            grmfile = grmfile,
+            GRM = GRM,
             snpfile = snpfile,
             snpmodel = snpmodel,
             snpinds = snpinds,
-            covrowinds = covrowinds[foldid .== i],
-            covrowtraininds = covrowinds[foldid .!= i],
-            covars = coefnames(apply_schema(nullformula, schema(nullformula, covdf)).rhs), 
+            testrowinds = covrowinds[foldid .== i],
+            trainrowinds = covrowinds[foldid .!= i],
             geneticrowinds = geneticrowinds[foldid .== i],
-            grmrowinds = grminds[foldid .== i],
             grmcolinds = grminds[foldid .!= i],
             GEIvar = GEIvar,
             GEIkin = GEIkin,
@@ -262,17 +268,17 @@ function pglmm_cv(
         Threads.@threads for i = 1:nfolds
             yhat[i] = PenalizedGLMM.predict(
                 modelfit[i],
+                nullformula,
                 covfile,
-                grmfile,
                 plinkfile,
+                grmfile = grmfile,
+                GRM = GRM,
                 snpfile = snpfile,
                 snpmodel = snpmodel,
                 snpinds = snpinds,
-                covrowinds = covrowinds[foldid .== i],
-                covrowtraininds = covrowinds[foldid .!= i],
-                covars = coefnames(apply_schema(nullformula, schema(nullformula, covdf)).rhs), 
+                testrowinds = covrowinds[foldid .== i],
+                trainrowinds = covrowinds[foldid .!= i],
                 geneticrowinds = geneticrowinds[foldid .== i],
-                grmrowinds = grminds[foldid .== i],
                 grmcolinds = grminds[foldid .!= i],
                 GEIvar = GEIvar,
                 GEIkin = GEIkin,
@@ -344,6 +350,7 @@ function pglmm_cv(
     end
 
     # Return lasso path and optimal values of rho and lambda
-    return(path = modelfit_full, rho = TuningParms(rho[j], j), lambda = TuningParms(modelfit_full[j].lambda[jj], jj), meanloss = meanloss)
+        return(path = length(rho) == 1 ? modelfit_full[1] : modelfit_full,
+         rho = TuningParms(rho[j], j), lambda = TuningParms(modelfit_full[j].lambda[jj], jj), meanloss = meanloss)
 
 end

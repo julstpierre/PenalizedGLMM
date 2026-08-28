@@ -100,7 +100,7 @@ function pglmm(
     if length(nullmodel.D) > 0
         # Compute eigenvalues and eigenvectors and add them to existing ones
         append!(eigvals, eigenkron(nullmodel.D, size(nullmodel.τV, 1)).values)
-        U = BlockDiagonal([U, eigenkron(nullmodel.D, size(nullmodel.τV, 1)).vectors])
+        U = BlockDiagonals.BlockDiagonal([U, eigenkron(nullmodel.D, size(nullmodel.τV, 1)).vectors])
 
         #Sort by ascending eigenvalues
         ascorder = sortperm(eigvals)

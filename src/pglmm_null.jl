@@ -20,7 +20,7 @@ function pglmm_null(
     covfile::Union{DataFrame, AbstractString} = nothing,
     covrowinds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     grmfile::Union{Nothing, AbstractString} = nothing,
-    GRM::Union{Nothing, Matrix{T}, BlockDiagonal{T, Matrix{T}}} = nothing,
+    GRM::Union{Nothing, Matrix{T}, BlockDiagonals.BlockDiagonal{T, Matrix{T}}} = nothing,
     grminds::Union{Nothing,AbstractVector{<:Integer}} = nothing,
     family::UnivariateDistribution = Binomial(),
     link::GLM.Link = LogitLink(),
@@ -134,11 +134,11 @@ function pglmm_null(
             end
             GRM_E = sparse(Matrix(GRM) .* V_E)
             
-            if GRM isa BlockDiagonal
+            if GRM isa BlockDiagonals.BlockDiagonal
                 # Convert GRM_E into BD matrix, keeping zeros within each block
                 GRM_E[(V_E .== 0) .&& (Matrix(GRM) .!= 0)] .= 1
                 GRM_E[(V_E .== 0) .&& (Matrix(GRM) .!= 0)] .= 0
-                push!(V, BlockDiagonal(GRM_E))
+                push!(V, BlockDiagonals.BlockDiagonal(GRM_E))
             else
                 push!(V, GRM_E)
             end
@@ -155,7 +155,7 @@ function pglmm_null(
     #--------------------------------------------------------------hg
     if !isnothing(idvar)
         # Create L matrix assuming covdf is sorted by repeated ids
-        L = [ones(sum(covdf[:, idvar] .== unique(covdf[:, idvar])[i]), 1) for i in 1:m] |> x-> BlockDiagonal(x)
+        L = [ones(sum(covdf[:, idvar] .== unique(covdf[:, idvar])[i]), 1) for i in 1:m] |> x-> BlockDiagonals.BlockDiagonal(x)
     else
         L = Diagonal(ones(m))
     end
@@ -175,7 +175,7 @@ function pglmm_null(
         r, Z = size(z,2), Any[]
         diagidx = [1, r+1, 2*r, 3*r-2, 4*r-5, 5*r-9][1:r]
         for j in 1:r
-            push!(Z, [reshape(z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], j], :, 1) for i in 1:m] |> x->BlockDiagonal(x))
+            push!(Z, [reshape(z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], j], :, 1) for i in 1:m] |> x->BlockDiagonals.BlockDiagonal(x))
         end
         H = sparse(hcat(Matrix(L), reduce(hcat, Matrix.(Z))))
 
@@ -183,9 +183,9 @@ function pglmm_null(
         for j in 1:r
             for k in j:r
                 if j == k
-                    push!(V, BlockDiagonal(blocks(Z[j]) .* blocks(Z[j]')))
+                    push!(V, BlockDiagonals.BlockDiagonal(blocks(Z[j]) .* blocks(Z[j]')))
                 else
-                    push!(V, BlockDiagonal(blocks(Z[j]) .* blocks(Z[k]') + blocks(Z[k]) .* blocks(Z[j]')))
+                    push!(V, BlockDiagonals.BlockDiagonal(blocks(Z[j]) .* blocks(Z[k]') + blocks(Z[k]) .* blocks(Z[j]')))
                 end
             end
         end
@@ -364,7 +364,7 @@ function glmmfit_ai(
     # Define inverse of Σ
     τV = family == Normal() ? sum(theta[2:end] .* V[2:end]) : sum(theta .* V)
     Σ = W^-1 + τV
-    if !(Σ isa BlockDiagonal) Σ = cholesky(Σ) end
+    if !(Σ isa BlockDiagonals.BlockDiagonal) Σ = cholesky(Σ) end
     XΣ_inv = X' / Σ
     XΣ_invX = Symmetric(XΣ_inv * X) |> x-> cholesky(x)
     covXΣ_inv = XΣ_invX \ XΣ_inv
@@ -403,7 +403,7 @@ function glmmfit_ai(
     V::Vector{Any},
     D::Symmetric{T, Matrix{T}},
     Z::Union{Vector{Any}, Nothing},
-    L::BlockDiagonal{T, Matrix{T}},
+    L::BlockDiagonals.BlockDiagonal{T, Matrix{T}},
     H::AbstractMatrix,
     X::Matrix{T},
     Ytilde::Vector{T},
@@ -417,7 +417,7 @@ function glmmfit_ai(
     m, r = size(L, 2), isnothing(Z) ? 0 : length(Z)
     q = Int(K - r * (r + 1) / 2)
     R_inv = !isnothing(Z) ? sum(theta[(q+1):end] .* V[(q+1):end]) + W^-1 |> x-> inv(x) : W
-    LR_inv = !isnothing(Z) ? [sum(blocks(R_inv)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonal(x) : L'R_inv
+    LR_inv = !isnothing(Z) ? [sum(blocks(R_inv)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonals.BlockDiagonal(x) : L'R_inv
     LR_invL = [sum(blocks(LR_inv)[i]) for i in 1:m] |> x-> Diagonal(x)
     LR_invX = LR_inv * X
     LR_invYtilde = LR_inv * Ytilde
@@ -439,7 +439,7 @@ function glmmfit_ai(
 
     # Estimate b
     HPY = H'PY
-    b = BlockDiagonal([Matrix(τV), kron(D, Diagonal(ones(m)))]) * HPY
+    b = BlockDiagonals.BlockDiagonal([Matrix(τV), kron(D, Diagonal(ones(m)))]) * HPY
 
     if fit_only
         return(α = α, η = η, b = b)
@@ -456,15 +456,15 @@ function glmmfit_ai(
         # Compute useful quantities to calculate trace of P for dispersion parameter only
         if IsNormal
             R_inv2 = R_inv^2
-            LR_inv2 = !isnothing(Z) ? [sum(blocks(R_inv2)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonal(x) : L'R_inv2
+            LR_inv2 = !isnothing(Z) ? [sum(blocks(R_inv2)[i], dims = 1) for i in 1:m] |> x-> BlockDiagonals.BlockDiagonal(x) : L'R_inv2
             LR_inv2L = [sum(blocks(LR_inv2)[i]) for i in 1:m] |> x-> Diagonal(x)
         end
 
         # Compute useful quantities to calculate the trace of Σ_inv * dV
         LΣ_invL = LR_invL - LR_invL * (Σ_L \ Matrix(LR_invL))
         if !isnothing(Z)
-            ZR_inv = [BlockDiagonal(blocks(Z[i]') .* blocks(R_inv)) for i in 1:r]
-            ZR_invZ = [j >= i ? BlockDiagonal(blocks(ZR_inv[i]) .* blocks(Z[j])) : 0 for i in 1:r, j in 1:r]
+            ZR_inv = [BlockDiagonals.BlockDiagonal(blocks(Z[i]') .* blocks(R_inv)) for i in 1:r]
+            ZR_invZ = [j >= i ? BlockDiagonals.BlockDiagonal(blocks(ZR_inv[i]) .* blocks(Z[j])) : 0 for i in 1:r, j in 1:r]
             LR_invZ = [Diagonal(sum.(blocks(ZR_inv[i]))) for i in 1:r]
             ZΣ_invZ = ZR_invZ - [j >= i ? LR_invZ[i] * (Σ_L \ Matrix(LR_invZ[j])) : 0 for i in 1:r, j in 1:r]
         end
@@ -474,7 +474,7 @@ function glmmfit_ai(
 
         if method == :ML
             for k in (1+IsNormal):q
-                isa(V[k], BlockDiagonal) && push!(trΣ_invdV, tr(LΣ_invL * V[k]))
+                isa(V[k], BlockDiagonals.BlockDiagonal) && push!(trΣ_invdV, tr(LΣ_invL * V[k]))
                 isa(V[k], Matrix) && push!(trΣ_invdV, sum(LΣ_invL .* V[k]))
             end
             if !isnothing(Z)
@@ -498,7 +498,7 @@ function glmmfit_ai(
 
             trPdV = IsNormal ? [trΣ_invdV[1] - sum(XΣ_inv .* (XΣ_invX \ XΣ_inv))] : []
             for k in (1+IsNormal):q
-                isa(V[k], BlockDiagonal) && push!(trPdV, tr(LPL * V[k]))
+                isa(V[k], BlockDiagonals.BlockDiagonal) && push!(trPdV, tr(LPL * V[k]))
                 isa(V[k], Matrix) && push!(trPdV, sum(LPL .* V[k]))
             end
             if !isnothing(Z)
