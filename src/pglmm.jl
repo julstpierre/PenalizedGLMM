@@ -6,7 +6,7 @@
     without the .bed, .fam, or .bim extensions. Moreover, bed, bim, and fam file with 
     the same `geneticfile` prefix need to exist.
 # Keyword arguments
-- `snpfile::Union{Nothing, AbstractString}`: TXT file name containing genetic data if not in PLINK format.
+- `snpfile::Union{Nothing, AbstractString}`: TXT file name containing genetic data if not in PLINK format.
 - `snpmodel`: `ADDITIVE_MODEL` (default), `DOMINANT_MODEL`, or `RECESSIVE_MODEL`.
 - `snpinds::Union{Nothing,AbstractVector{<:Integer}}`: SNP indices for bed/vcf file.
 - `geneticrowinds::Union{Nothing,AbstractVector{<:Integer}}`: sample indices for bed/vcf file.
@@ -99,7 +99,7 @@ function pglmm(
     if length(nullmodel.D) > 0
         # Compute eigenvalues and eigenvectors and add them to existing ones
         append!(eigvals, eigenkron(nullmodel.D, size(nullmodel.τV, 1)).values)
-        U = BlockDiagonal([U, eigenkron(nullmodel.D, size(nullmodel.τV, 1)).vectors])
+        U = BlockDiagonals.BlockDiagonal([U, eigenkron(nullmodel.D, size(nullmodel.τV, 1)).vectors])
 
         #Sort by ascending eigenvalues
         ascorder = sortperm(eigvals)
@@ -1389,7 +1389,7 @@ mutable struct pglmmPath{F<:Distribution, A<:AbstractArray, B<:AbstractArray, T<
     φ::T                                        # dispersion parameters
     τ::C                                        # estimated variance components
     intercept::Bool                             # boolean for intercept
-    rho::Union{Nothing, Real}                   # rho tuninng parameter
+    rho::Union{Nothing, Real}                   # rho tuning parameter
     D::Union{Nothing, E}
 end
 
@@ -1514,7 +1514,7 @@ function NormalDeviance(δ::Vector{T}, w::Vector{T}, r::Vector{T}, eigvals::Vect
 end
 
 # Predict phenotype
-function predict(path, 
+function predict(path::Union{pglmmPath, Vector{pglmmPath}}, 
                   formula::FormulaTerm,
                   covfile::Union{DataFrame, AbstractString},
                   plinkfile::Union{Nothing, AbstractString} = nothing;
@@ -1533,12 +1533,14 @@ function predict(path,
                   fixed_effects_only::Bool = false,
                   GEIvar::Union{Nothing,AbstractString} = nothing,
                   GEIkin::Bool = true,
-                  GRM::Union{Nothing, Matrix{T}, BlockDiagonal{T, Matrix{T}}} = nothing,
+                  GRM::Union{Nothing, Matrix{T}, BlockDiagonals.BlockDiagonal{T, Matrix{T}}} = nothing,
                   reformula::Union{Nothing, FormulaTerm} = nothing,
                   standardize_Z::Bool = false,
                   outtype = :response
                  ) where T
-
+    if (isa(path, pglmmPath))
+        path = [path]
+    end
     if isnothing(s)
         [predict(path[j],
                   formula, 
@@ -1609,7 +1611,7 @@ function predict(path::pglmmPath,
                   fixed_effects_only::Bool = false,
                   GEIvar::Union{Nothing,AbstractString} = nothing,
                   GEIkin::Bool = true,
-                  GRM::Union{Nothing, Matrix{T}, BlockDiagonal{T, Matrix{T}}} = nothing,
+                  GRM::Union{Nothing, Matrix{T}, BlockDiagonals.BlockDiagonal{T, Matrix{T}}} = nothing,
                   reformula::Union{Nothing, FormulaTerm} = nothing,
                   standardize_Z::Bool = false,
                   outtype = :response
@@ -1619,6 +1621,7 @@ function predict(path::pglmmPath,
     # Read covariate and grm file
     #--------------------------------------------------------------
     covdf = isa(covfile, AbstractString) ? CSV.read(covfile, DataFrame) : isa(covfile, DataFrame) ? covfile : error("covfile is not a DataFrame of AbstractString")
+    trainrowinds = isnothing(trainrowinds) ? (1:nrow(covdf)) : trainrowinds
     testrowinds = isnothing(testrowinds) ? (1:nrow(covdf)) : testrowinds
 
     X = modelmatrix(glm(formula, covdf[testrowinds,:], path.family))
@@ -1668,7 +1671,7 @@ function predict(path::pglmmPath,
     # Create list of similarity matrices
     if !isnothing(idvar)
         m = length(unique(covdf[:, idvar]))
-        L = [ones(sum(covdf[:, idvar] .== unique(covdf[:, idvar])[i]), 1) for i in 1:m] |> x-> BlockDiagonal(x)
+        L = [ones(sum(covdf[:, idvar] .== unique(covdf[:, idvar])[i]), 1) for i in 1:m] |> x-> BlockDiagonals.BlockDiagonal(x)
     else
         L = Diagonal(ones(size(GRM, 1)))
     end
@@ -1723,7 +1726,7 @@ function predict(path::pglmmPath,
         # Create BlockDiagonal matrix for each random effect
         r, Z = size(z,2), Any[]
         for j in 1:r
-            push!(Z, [reshape(z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], j], :, 1) for i in 1:m] |> x->BlockDiagonal(x))
+            push!(Z, [reshape(z[covdf[:, idvar] .== unique(covdf[:, idvar])[i], j], :, 1) for i in 1:m] |> x->BlockDiagonals.BlockDiagonal(x))
         end
 
         # Create relatedness matrices
@@ -1732,10 +1735,10 @@ function predict(path::pglmmPath,
             for k in j:r
                 if j == k
                     idx += 1
-                    push!(ZDZt, BlockDiagonal(blocks(Z[j]) .* blocks(Z[j]')) * Dvec[idx])
+                    push!(ZDZt, BlockDiagonals.BlockDiagonal(blocks(Z[j]) .* blocks(Z[j]')) * Dvec[idx])
                 else
                     idx += 1
-                    push!(ZDZt, BlockDiagonal(blocks(Z[j]) .* blocks(Z[k]') + blocks(Z[k]) .* blocks(Z[j]')) * Dvec[idx])
+                    push!(ZDZt, BlockDiagonals.BlockDiagonal(blocks(Z[j]) .* blocks(Z[k]') + blocks(Z[k]) .* blocks(Z[j]')) * Dvec[idx])
                 end
             end
         end
@@ -1821,7 +1824,7 @@ function GIC(path::pglmmPath, criterion; return_val = false)
 end
 
 # Standardize predictors for lasso
-function standardizeX(X::AbstractMatrix{T}, standardize::Bool, alpha::AbstractVector{T}, intercept::Bool = false) where T
+function standardizeX(X::AbstractMatrix{T}, standardize::Bool, alpha::Union{AbstractVector{T}, Nothing} = nothing, intercept::Bool = false) where T
     mu = intercept ? vec([0 mean(X[:,2:end], dims = 1)]) : vec(mean(X, dims = 1))
     Xs = zero(X)
     if standardize
@@ -1834,7 +1837,7 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, alpha::AbstractVe
             @inbounds Xs[i,j] = (X[i,j] .- mu[j]) / s[j]
         end
 
-        α = alpha .* s 
+        α = isnothing(alpha) ? nothing : alpha .* s
     else
         for j in 1:size(X,2), i in 1:size(X, 1) 
             @inbounds Xs[i,j] = X[i,j] .- mu[j]
@@ -1845,8 +1848,13 @@ function standardizeX(X::AbstractMatrix{T}, standardize::Bool, alpha::AbstractVe
 
     # Remove first term if intercept
     if intercept 
-        popfirst!(mu); popfirst!(s)
-        α[1] += alpha[2:end]'mu
+        popfirst!(mu)
+        if !isnothing(s)
+             popfirst!(s)
+        end
+        if !isnothing(alpha)
+            α[1] += alpha[2:end]'mu
+        end
     end
 
     Xs, mu, s, α
